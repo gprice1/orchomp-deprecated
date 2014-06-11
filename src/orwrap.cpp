@@ -1,5 +1,5 @@
-/** \file orcwrap.cpp
- * \brief Implementation of orcwrap, an OpenRAVE interface command parser.
+/** \file orwrap.cpp
+ * \brief Implementation of orwrap, an OpenRAVE interface command parser.
  * \author Christopher Dellin
  * \date 2012
  */
@@ -32,9 +32,9 @@ extern "C" {
 #include "utils/util_shparse.h"
 }
 
-#include "orcwrap.h"
+#include "orwrap.h"
 
-static bool orcwrap_call(
+static bool orwrap_call(
    const char * cmd,
    boost::function<int (int, char * [], std::ostream&)> fn,
    std::ostream& sout, std::istream& sinput)
@@ -69,14 +69,14 @@ static bool orcwrap_call(
 }
 
 boost::function<bool (std::ostream&, std::istream&)>
-orcwrap(boost::function<int (int, char * [], std::ostream&)> fn)
+orwrap(boost::function<int (int, char * [], std::ostream&)> fn)
 {
-   return boost::bind(orcwrap_call,"openrave_command",fn,_1,_2);
+   return boost::bind(orwrap_call,"openrave_command",fn,_1,_2);
 }
 
 boost::function<bool (std::ostream&, std::istream&)>
-orcwrap(const char * cmd, boost::function<int (int, char * [], std::ostream&)> fn)
+orwrap(const char * cmd, boost::function<int (int, char * [], std::ostream&)> fn)
 {
-   return boost::bind(orcwrap_call,cmd,fn,_1,_2);
+   return boost::bind(orwrap_call,cmd,fn,_1,_2);
 }
 

@@ -33,7 +33,7 @@
  * (using libcd's util_shparse) */
 
 boost::function<bool (std::ostream&, std::istream&)>
-   orcwrap(boost::function<int (int, char * [], std::ostream&)> fn);
+   orwrap(boost::function<int (int, char * [], std::ostream&)> fn);
 
 boost::function<bool (std::ostream&, std::istream&)>
-   orcwrap(const char * cmd, boost::function<int (int, char * [], std::ostream&)> fn);
+   orwrap(const char * cmd, boost::function<int (int, char * [], std::ostream&)> fn);
