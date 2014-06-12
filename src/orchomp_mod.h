@@ -31,23 +31,71 @@
 #ifndef _ORCHOMP_MOD_H_
 #define _ORCHOMP_MOD_H_
 
-#include "orwrap.h"
 #include "chomp-multigrid/chomp/Chomp.h"
 #include "chomp-multigrid/chomp/Constraint.h"
 #include "chomp-multigrid/chomp/ConstraintFactory.h"
+
 #include <openrave/openrave.h>
+#include <openrave/planningutils.h>
 
 extern "C" {
 #include <gsl/gsl_rng.h>
 #include <gsl/gsl_randist.h>
 #include "utils/os.h"
-#include "utils/util_shparse.h"
 }
+
+#define DEBUG_COUT 0
+#define debugStream \
+    if (DEBUG_COUT) {} \
+    else std::cout
 
 
 namespace orchomp
 {
 
+template <class T>
+class VoxelGrid {
+    T * values;
+    const size_t x_size ,y_size ,z_size;
+    const size_t y_by_z; //This is useful for calculating indices.
+    
+public:
+    VoxelGrid( size_t x, size_t y, size_t z ) :
+        values( new T[x*y*z]), x_size(x), y_size(y), z_size(z),
+        y_by_z( y*z ) {}
+    ~VoxelGrid(){ delete values; }
+    
+    size_t size_x(){ return x_size; }
+    size_t size_y(){ return y_size; }
+    size_t size_z(){ return z_size; }
+    size_t size( int dim ){
+        assert( dim < 3 && dim >=0 );
+        if ( dim == 0 ){ return x_size; }
+        if ( dim == 1 ){ return y_size; }
+        return z_size;
+    }
+
+    inline T & operator()( size_t x, size_t y, size_t z ){
+        assert_bounds( x, y, z );
+        return values[ x*y_by_z + y*z_size + z ];
+    }
+    
+    /*
+    inline const T & operator()( size_t x, size_t y, size_t z ){
+        assert_bounds( x, y, z );
+        return values[ x*y_by_z + y*z_size + z ];
+    }
+    */
+    inline void assert_bounds( size_t x, size_t y, size_t z ){
+        assert( x >= 0 );
+        assert( x < x_size );
+        assert( y >= 0 );
+        assert( y < y_size );
+        assert( z >= 0 );
+        assert( z < z_size );
+    }
+};
+        
 class sdf{
     int garbage;
 };
@@ -73,14 +121,14 @@ public:
 
     //whether or not global and/or local chomp should
     //  be done.
-    bool doGlobal, doLocal;
+    bool doGlobal, doLocal, doObserve;
 
     //a basic constructor to initialize values
     ChompInfo() :
         alpha(0.1), obstol(0.01), t_total(1.0), gamma(0.1),
         n(0), n_max(0), max_global_iter( size_t(-1) ), 
         max_local_iter( size_t(-1)), doGlobal( true ),
-        doLocal( false)
+        doLocal( false), doObserve( false )
         {}
 };
 
@@ -176,7 +224,10 @@ public:
    //This holds basic info relating to an individual 
    //   run of chomp
    ChompInfo info;
-    
+  
+   // This observes chomp for general debugging purposes
+   chomp::DebugChompObserver observer;
+
    //these are useful for interfacing with the robot.
    OpenRAVE::RobotBase * robot;
    OpenRAVE::KinBodyPtr kinbody;
@@ -199,26 +250,26 @@ public:
 
    //_______________________PUBLIC MEMBER FUNCTIONS___________________//
    //visualize the collision geometry 
-   int viewspheres(int argc, char * argv[], std::ostream& sout);
+   int viewspheres(std::ostream & sout, std::istream& sinput);
 
    //compute the distance field for use in collision detection, and
    //   descending the gradient out of collision
-   int computedistancefield(int argc, char * argv[], std::ostream& sout);
+   int computedistancefield(std::ostream & sout, std::istream& sinput);
 
    // NOTE : Find out what this is supposed to do
-   int addfield_fromobsarray(int argc, char * argv[], std::ostream& sout);
+   int addfield_fromobsarray(std::ostream & sout, std::istream& sinput);
 
    //
-   int create(int argc, char * argv[], std::ostream& sout);
+   int create(std::ostream & sout, std::istream& sinput);
 
    //GO through one iteration of chomp
-   int iterate(int argc, char * argv[], std::ostream& sout);
+   int iterate(std::ostream & sout, std::istream& sinput);
 
    //Get the current trajectory
-   int gettraj(int argc, char * argv[], std::ostream& sout);
+   int gettraj(std::ostream & sout, std::istream& sinput);
 
    //destroy the current chomp iteration.
-   int destroy(int argc, char * argv[], std::ostream& sout);
+   int destroy(std::ostream & sout, std::istream& sinput);
     
    //constructor that registers all of the commands to the openRave
    //   command line interface.
@@ -236,13 +287,16 @@ public:
     // this is all helper code for the parsing.
     // The source code for these functions is in orchomp_mod_parse.cpp, 
     //      not the same file that contains many of the other functions.
-    void parseCreate(int argc, char * argv[], std::ostream& sout);
-    void parseViewSpheres(int argc, char * argv[], std::ostream& sout);
-    void parseIterate(int argc, char * argv[], std::ostream& sout);
-    void parseGetTraj(int argc, char * argv[], std::ostream& sout);
-    void parseDestroy(int argc, char * argv[], std::ostream& sout);
-    void parseComputeDistanceField(int argc, char * argv[], std::ostream& sout);
-    void parseAddFieldFromObsArray(int argc, char * argv[], std::ostream& sout);
+    void parseCreate(std::ostream & sout, std::istream& sinput);
+    void parseViewSpheres(std::ostream & sout, std::istream& sinput);
+    void parseIterate(std::ostream & sout, std::istream& sinput);
+    void parseGetTraj(std::ostream & sout, std::istream& sinput);
+    void parseDestroy(std::ostream & sout, std::istream& sinput);
+    void parseComputeDistanceField(std::ostream & sout,
+                                   std::istream& sinput);
+    void parseAddFieldFromObsArray(std::ostream & sout,
+                                   std::istream& sinput);
+    void parsePoint( std::istream & sinput, chomp::MatX & point);
 
     // A small helper function for creating a straight line trajectory between
     //  two endpoints:

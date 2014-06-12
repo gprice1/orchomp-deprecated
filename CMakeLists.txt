@@ -13,7 +13,6 @@ add_library(orchomp SHARED
     src/orchomp.cpp
     src/orchomp_mod.cpp
     src/orchomp_kdata.cpp
-    src/orwrap.cpp
     src/orchomp_mod_parse.cpp
 
     src/chomp-multigrid/chomp/Chomp.cpp   

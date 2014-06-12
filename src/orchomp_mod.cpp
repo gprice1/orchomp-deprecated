@@ -24,10 +24,10 @@
  */
 
 #include <time.h>
-#include <openrave/planningutils.h>
+#include "orchomp_mod.h"
+
 
 #include "orchomp_kdata.h"
-#include "orchomp_mod.h"
 
 #define DEBUG_TIMING
 
@@ -47,31 +47,31 @@ namespace orchomp
 //constructor that registers all of the commands to the openRave
 //   command line interface.
 mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
-    OpenRAVE::ModuleBase(penv), environment( penv )
+    OpenRAVE::ModuleBase(penv), environment( penv ), 
+    factory( NULL ), robot( NULL ), sphere_collider( NULL ),
+    collisionHelper( NULL ), chomper( NULL )
 {
       __description = "orchomp: implementation multigrid chomp";
       RegisterCommand("viewspheres",
-              orwrap(boost::bind(&mod::viewspheres,this,_1,_2,_3)),
+              boost::bind(&mod::viewspheres,this,_1,_2),
               "view spheres");
       RegisterCommand("computedistancefield",
-               orwrap(boost::bind(
-               &mod::computedistancefield,this,_1,_2,_3)),
+               boost::bind(&mod::computedistancefield,this,_1,_2),
                "compute distance field");
       RegisterCommand("addfield_fromobsarray",
-            orwrap(boost::bind(
-            &mod::addfield_fromobsarray,this,_1,_2,_3)),
+            boost::bind( &mod::addfield_fromobsarray,this,_1,_2),
             "compute distance field");
       RegisterCommand("create", 
-            orwrap(boost::bind(&mod::create,this,_1,_2,_3)),
+            boost::bind(&mod::create,this,_1,_2),
             "create a chomp run");
       RegisterCommand("iterate",
-            orwrap(boost::bind(&mod::iterate,this,_1,_2,_3)),
+            boost::bind(&mod::iterate,this,_1,_2),
             "create a chomp run");
       RegisterCommand("gettraj",
-            orwrap(boost::bind(&mod::gettraj,this,_1,_2,_3)),
+            boost::bind(&mod::gettraj,this,_1,_2),
             "create a chomp run");
       RegisterCommand("destroy",
-            orwrap(boost::bind(&mod::destroy,this,_1,_2,_3)),
+            boost::bind(&mod::destroy,this,_1,_2),
             "create a chomp run");
       
 }
@@ -82,9 +82,9 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
 
 // NOTES : viewspheres looks to be fine without editing.
 //    - There may be hidden dependency issues
-int mod::viewspheres(int argc, char * argv[], std::ostream& sout)
+int mod::viewspheres(std::ostream& sout, std::istream& sinput)
 {
-    parseViewSpheres( argc, argv, sout);
+    parseViewSpheres( sout,  sinput);
 
     return 0;
 }
@@ -101,16 +101,16 @@ int mod::viewspheres(int argc, char * argv[], std::ostream& sout)
  //         1. It is lacking the necessary libraries for computing
  //         2. Even if the libraries were correct, it is unlikely to work
  //             with the current chomp style of gradients
-int mod::computedistancefield(int argc, char * argv[], std::ostream& sout)
+int mod::computedistancefield(std::ostream& sout, std::istream& sinput)
 {
-    parseComputeDistanceField( argc, argv, sout);
+    parseComputeDistanceField( sout,  sinput);
     return 0;
 }
 
 
-int mod::addfield_fromobsarray(int argc, char * argv[], std::ostream& sout)
+int mod::addfield_fromobsarray(std::ostream& sout, std::istream& sinput)
 {
-    parseAddFieldFromObsArray( argc, argv, sout);
+    parseAddFieldFromObsArray( sout,  sinput);
    
     return 0;
 
@@ -175,10 +175,11 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
  * uses the active dofs of the passed robot
  * initialized with a straight-line trajectory
  * */
-int mod::create(int argc, char * argv[], std::ostream& sout)
+int mod::create(std::ostream& sout, std::istream& sinput)
 {
+    std::cout << "Creating" << std::endl;
 
-    parseCreate( argc, argv, sout);
+    parseCreate( sout,  sinput);
     
     //after the arguments have been collected, pass them to chomp
     createInitialTrajectory();
@@ -209,35 +210,53 @@ int mod::create(int argc, char * argv[], std::ostream& sout)
         chomper->ghelper = collisionHelper;
     }
 
+    if ( info.doObserve ){
+        chomper->observer = &observer;
+    }
+    
+    std::cout << "Done Creating" << std::endl;
+    
     return 0;
 }
 
-int mod::iterate(int argc, char * argv[], std::ostream& sout)
+int mod::iterate(std::ostream& sout, std::istream& sinput)
 {
-    parseIterate( argc, argv, sout);
-
+    std::cout << "Iterating" << std::endl;
+    
+    parseIterate( sout,  sinput);
     chomper->solve( info.doGlobal, info.doLocal );
 
+    std::cout << "Done Iterating" << std::endl;
     return 0;
 }
 
-int mod::gettraj(int argc, char * argv[], std::ostream& sout)
+int mod::gettraj(std::ostream& sout, std::istream& sinput)
 {
-
+    
+    std::cout << "Getting Trajectory" << std::endl;
     OpenRAVE::EnvironmentMutex::scoped_lock lockenv;
     OpenRAVE::TrajectoryBasePtr traj_ptr;
-    OpenRAVE::RobotBasePtr boostrobot;
 
-    parseGetTraj( argc, argv, sout);
+    parseGetTraj( sout,  sinput);
     
     //get the lock for the environment
     lockenv = OpenRAVE::EnvironmentMutex::scoped_lock(
               environment->GetMutex() );
    
+    //setup the openrave trajectory pointer to receive the
+    //  found trajectory.
+    traj_ptr = OpenRAVE::RaveCreateTrajectory(environment);
+    traj_ptr->Init(
+        robot->GetActiveConfigurationSpecification());
+    debugStream << "Done locking environment,"
+                << " begun extracting trajectory" << std::endl;
+    
+    
     //For every state (each row is a state), extract the data,
     //  and turn it into a vector, then give it to 
     // TODO : make sure that this pointer arithmetic
     //  actually works.
+
     for ( int i = 0; i < trajectory.rows(); i ++ ){
         traj_ptr->Insert( i, getIthStateAsVector( i ) );
     }
@@ -251,17 +270,20 @@ int mod::gettraj(int argc, char * argv[], std::ostream& sout)
     
     //TODO : check for collisions
 
-
+    debugStream << "Serializing trajectory output" << std::endl; 
     //serialize the trajectory and send it over the 
     //  output stream.
     traj_ptr->serialize( sout );
+
+
+    std::cout << "Done Getting Trajectory" << std::endl;
     return 0;
 }
 
 
 
 
-int mod::destroy(int argc, char * argv[], std::ostream& sout){
+int mod::destroy(std::ostream& sout, std::istream& sinput){
     
     if (chomper){ delete chomper; }
     if (sphere_collider){ delete sphere_collider; }
