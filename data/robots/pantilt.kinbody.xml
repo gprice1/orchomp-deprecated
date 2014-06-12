@@ -1,0 +1,69 @@
+<KinBody name="pantilt">
+  <Body name="/head/pan" type="dynamic">
+    <offsetfrom>herb_base</offsetfrom>
+    <Translation>-0.219 0.0 1.273</Translation>
+    <RotationMat>1 0 0 0 1 0 0 0 1</RotationMat>
+    <Geom type="trimesh">
+      <Translation>0.219 0.0 -1.273</Translation>
+      <data>empty.iv</data>
+      <Render>herb-pan.iv</Render>
+    </Geom>
+  </Body>
+
+  <Body name="/head/tilt" type="dynamic">
+    <offsetfrom>/head/pan</offsetfrom>
+    <Translation>0 0 0</Translation>
+    <RotationMat>1 0 0 0 1 0 0 0 1</RotationMat>
+    <Geom type="trimesh">
+      <Translation>0.219 0.0 -1.273</Translation>
+      <Render>herb-tilt.iv</Render>
+      <data>empty.iv</data>
+    </Geom>
+  </Body>
+
+  <Body name="/head/optical" type="dynamic">
+    <offsetfrom>/head/tilt</offsetfrom>
+    <Translation>0 0 0</Translation>
+    <RotationMat>0 0 1 0 1 0 -1 0 0</RotationMat>
+    <Geom type="trimesh">
+      <Translation>0 0 0</Translation>
+      <Render>empty.iv</Render>
+      <data>empty.iv</data>
+    </Geom>
+  </Body>
+
+  <Joint name="Head_Pan" type="hinge">
+    <Body>herb_base</Body>
+    <Body>/head/pan</Body>
+    <offsetfrom>herb_base</offsetfrom>
+    <anchor>-0.219 0.0 1.273</anchor>
+    <axis>0 0 1</axis>
+    <limitsdeg>-180 180</limitsdeg> 
+    <weight>4</weight>
+    <maxvel>3.0</maxvel>
+    <resolution>1</resolution>
+  </Joint>
+
+  <Joint name="Head_Tilt" type="hinge">
+    <Body>/head/pan</Body>
+    <Body>/head/tilt</Body>
+    <offsetfrom>/head/pan</offsetfrom>
+    <Axis>0 -1 0</Axis>
+    <limitsdeg>-74 77</limitsdeg>
+    <weight>4</weight>
+    <maxvel>3.0</maxvel>
+    <resolution>1</resolution>
+  </Joint>
+
+  <Joint name="Head_Optical" type="hinge" enable="false">
+    <Body>/head/tilt</Body>
+    <Body>/head/optical</Body>
+    <offsetfrom>/head/tilt</offsetfrom>
+    <Anchor>0 0 0 </Anchor>
+    <Axis>1 0 0</Axis>
+    <limitsdeg>0 0</limitsdeg>
+    <weight>0</weight>
+    <maxvel>1</maxvel>
+    <resolution>1</resolution>
+  </Joint>
+</KinBody>

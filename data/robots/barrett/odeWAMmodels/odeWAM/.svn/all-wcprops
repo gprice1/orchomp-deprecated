@@ -1,0 +1,119 @@
+K 25
+svn:wc:ra_dav:version-url
+V 84
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM
+END
+wam0iv.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 103
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam0iv.kinbody.xml
+END
+wam1iv.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 103
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam1iv.kinbody.xml
+END
+wam2iv.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 103
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam2iv.kinbody.xml
+END
+wam7ode.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 104
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam7ode.kinbody.xml
+END
+wam3iv.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 103
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam3iv.kinbody.xml
+END
+wam6ode.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 104
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam6ode.kinbody.xml
+END
+wam4iv.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 103
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam4iv.kinbody.xml
+END
+wam5ode.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 104
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam5ode.kinbody.xml
+END
+wam5iv.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 103
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam5iv.kinbody.xml
+END
+wam4ode.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 104
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam4ode.kinbody.xml
+END
+wam6iv.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 103
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam6iv.kinbody.xml
+END
+wam3ode.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 104
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam3ode.kinbody.xml
+END
+wam7iv.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 103
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam7iv.kinbody.xml
+END
+wam2ode.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 104
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam2ode.kinbody.xml
+END
+wam1ode.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 104
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam1ode.kinbody.xml
+END
+wam0ode.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 104
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam0ode.kinbody.xml
+END
+barrettwam_ode.robot.xml
+K 25
+svn:wc:ra_dav:version-url
+V 109
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/barrettwam_ode.robot.xml
+END
+wam7_nohandiv.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 110
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam7_nohandiv.kinbody.xml
+END
+wam7dofode.kinbody.xml
+K 25
+svn:wc:ra_dav:version-url
+V 107
+/!svn/ver/21248/pr-ros-pkg/trunk/pr_ordata/ordata/robots/barrett/odeWAMmodels/odeWAM/wam7dofode.kinbody.xml
+END
