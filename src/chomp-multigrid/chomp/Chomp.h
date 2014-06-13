@@ -207,12 +207,6 @@ namespace chomp {
     double t_total; // total time for (N+1) timesteps
     double dt; // computed automatically from t_total and N
     double inv_dt; // computed automatically from t_total and N
-    
-    bool doDeleteConstraints; //should the constraints be deleted when
-                              //the constraint vector is cleared, or not?
-    bool usingGoalConstraint; //Should the goal position be anchored,
-                              // or should it be able to float, subject to
-                              // a constraint. 
 
     Eigen::LDLT<MatX> cholSolver;
 
@@ -230,9 +224,6 @@ namespace chomp {
           double t_total=1.0);
 
     void clearConstraints();
-    
-    void setDoDeleteConstraints(bool deleteConstraints );
-    void setUsingGoalConstraint(bool useGoalConstraint );
 
     void prepareChomp();    
 

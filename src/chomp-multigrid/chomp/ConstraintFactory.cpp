@@ -82,7 +82,7 @@ namespace chomp {
     size_t row = 0; // starting row for the current bundle o constraints
 
     for (size_t t=0, i=0; t<constraints.size(); t+=step, ++i) {
-        
+
       Constraint* c = constraints[t];
 
       //get individual h and H from qt

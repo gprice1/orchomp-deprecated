@@ -40,7 +40,6 @@
 
 namespace chomp {
 
-  
   typedef Eigen::MatrixXd MatX;
 
   template <class Derived>

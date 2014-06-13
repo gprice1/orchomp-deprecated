@@ -178,9 +178,7 @@ namespace chomp {
     max_global_iter(mg),
     max_local_iter(ml),
     full_global_at_final(false),
-    t_total(tt),
-    doDeleteConstraints(true),
-    usingGoalConstraint(false)
+    t_total(tt)
   {
 
     
@@ -200,23 +198,12 @@ namespace chomp {
 
 
   void Chomp::clearConstraints() {
-    
-    if (doDeleteConstraints){
-      while (!constraints.empty()) {
-        delete constraints.back();
-        constraints.pop_back();
-      }
-    } else{
-      constraints.clear();
+
+    while (!constraints.empty()) {
+      delete constraints.back();
+      constraints.pop_back();
     }
 
-  }
-
-  void Chomp::setUsingGoalConstraint( bool useGoalConstraint ){
-      usingGoalConstraint = useGoalConstraint;
-  }
-  void Chomp::setDoDeleteConstraints( bool deleteConstraints ){
-      doDeleteConstraints = deleteConstraints;
   }
 
   void Chomp::prepareChomp() {
@@ -253,6 +240,7 @@ namespace chomp {
     b.setZero();
 
     c = createBMatrix(N, coeffs, q0, q1, b, dt);
+
     g.resize(N,M);
 
     // decide whether base case or not
@@ -263,17 +251,15 @@ namespace chomp {
 
     if (!subsample) {
       N_sub = 0;
-
     } else {
-
       N_sub = (N+1)/2;
       g_sub.resize(N_sub, M);
       xi_sub.resize(N_sub, M);
-      skylineChol(N_sub , coeffs_sub, L_sub); 
+      skylineChol((N+1)/2, coeffs_sub, L_sub); 
     }
 
     dt = t_total / (N+1);
-    inv_dt = 1 / dt;
+    inv_dt = (N+1) / t_total;
 
     if (objective_type == MINIMIZE_VELOCITY) {
       fscl = inv_dt*inv_dt;
@@ -293,11 +279,10 @@ namespace chomp {
     // needed
 
     // get the gradient
-
     Ax.conservativeResize(xi.rows(), xi.cols());
+
     diagMul(coeffs, xi, Ax);
     g = Ax + b;
-
 
     if (ghelper) {
       fextra = ghelper->addToGradient(*this, g);
@@ -312,7 +297,7 @@ namespace chomp {
       // q0    q2    q4    q6  
 
       for (int t=0; t<N_sub; t++){
-        
+
         g_sub.row(t) = g.row(2*t);
         xi_sub.row(t) = xi.row(2*t);
 
@@ -348,7 +333,7 @@ namespace chomp {
   // updates chomp equation until convergence at the current level
   
   void Chomp::runChomp(bool global, bool local) {
-    
+
     prepareChompIter();
     double lastObjective = evaluateObjective();
     //std::cout << "initial objective is " << lastObjective << "\n";
@@ -358,7 +343,6 @@ namespace chomp {
       local = false;
     }
     
-    //do normal, global chomp
     cur_global_iter = 0;
     while (global) {
       chompGlobal();
@@ -380,8 +364,7 @@ namespace chomp {
     if (full_global_at_final && N >= maxN) {
       local = false;
     }
-    
-    //do local smoothing of the trajectory
+
     cur_local_iter = 0;
     while (local) {
       localSmooth();
@@ -400,8 +383,6 @@ namespace chomp {
       lastObjective = curObjective;
     }
 
-    //make sure that the constraints are satified if
-    //  subsampling occurs
     if (factory && N_sub) {
       factory->evaluate(constraints, xi, h, H);
       if (h.rows()) {
@@ -419,18 +400,20 @@ namespace chomp {
   // precondition: N <= maxN
   // postcondition: N >= maxN
   void Chomp::solve(bool doGlobalSmoothing, bool doLocalSmoothing) {
-    
+
     total_global_iter = 0;
     total_local_iter = 0;
     cur_global_iter = 0;
     cur_local_iter = 0;
-    
+
     //std::cout << "initial trajectory has length " << N << "\n";
 
     while (1) {
 
       prepareChomp();
+
       runChomp(doGlobalSmoothing, doLocalSmoothing); 
+
 
       if (N >= maxN) { // have already upsampled enough
         break;
@@ -468,10 +451,11 @@ namespace chomp {
   // upsamples the trajectory by 2x
   void Chomp::upsample() {
 
-    const int N_up = 2*N+1; // e.g. size 3 goes to size 7
+    int N_up = 2*N+1; // e.g. size 3 goes to size 7
+    //MatX xi_up(M*N_up, 1), q_t(M,1), q_prev(M,1), q_next(M,1);
+    
     MatX xi_up(N_up, M);
 
-    // WITHOUT GOAL CONSTRAINT: 
     // q0    d0    d1    d2    q1   with n = 3
     // q0 u0 u1 u2 u3 u4 u5 u6 q1   with n = 7
     //
@@ -540,7 +524,7 @@ namespace chomp {
     const MatX& g_which = subsample ? g_sub : g;
     const MatX& L_which = subsample ? L_sub : L;
     const MatX& h_which = subsample ? h_sub : h;
-    const int  N_which  = subsample ? N_sub : N;
+    const int  N_which = subsample ? N_sub : N;
 
     if (H_which.rows() == 0) {
 
@@ -625,6 +609,8 @@ namespace chomp {
       }
 
     }
+    
+
   }
 
   // single iteration of local smoothing
@@ -637,10 +623,7 @@ namespace chomp {
 
     hmag = 0;
 
-    int max_index = N;
-    if ( usingGoalConstraint ){ max_index -- ; }
-
-    for (int t=0; t<max_index; ++t){
+    for (int t=0; t<N; ++t){
 
       Constraint* c = constraints.empty() ? 0 : constraints[t];
       
@@ -649,7 +632,9 @@ namespace chomp {
       if (is_constrained) { 
         c->evaluateConstraints(xi.row(t), h_t, H_t);
         is_constrained = h_t.rows() > 0;
-        hmag = std::max(hmag, h_t.lpNorm<Eigen::Infinity>());
+        if (is_constrained ){
+          hmag = std::max(hmag, h_t.lpNorm<Eigen::Infinity>());
+        }
       }
 
       if (is_constrained) {
@@ -658,16 +643,14 @@ namespace chomp {
         assert(H_t.cols() == M);
         assert(size_t(h_t.rows()) == constraints[t]->numOutputs());
         assert(h_t.cols() == 1);
-      
+    
         // Now we calculate, using opencv
 
         P_t = H_t*H_t.transpose();
         P_t_inv = P_t.inverse();
 
         // transpose g to be a column vector
-        delta_t = ( -alpha
-                    *(MatX::Identity(M,M)-H_t.transpose()
-                    *P_t_inv*H_t)*g.row(t).transpose()
+        delta_t = ( -alpha*(MatX::Identity(M,M)-H_t.transpose()*P_t_inv*H_t)*g.row(t).transpose()
                     -H_t.transpose()*P_t_inv*h_t );
 
       } else {
@@ -676,18 +659,13 @@ namespace chomp {
         delta_t = -alpha * g.row(t).transpose();
         
       }
-      
-      xi.row(t) += delta_t.transpose();
+
       // transpose delta to be a row vector
+      xi.row(t) += delta_t.transpose();
 
     }
-    std::cout << "Qt = " << q1 << "\n";
-    std::cout << "Delta = " << delta_t << "\n";
-
 
   }
-    
- 
 
   // evaluates the objective function for cur. thing.
   //
@@ -704,7 +682,7 @@ namespace chomp {
       1 -2  1  0 ... 0  0  0
       0  1 -2  1 ... 0  0  0
       ...
-      0  0  0  0 ... 1 -2  1
+      0  0  0  0 ... 1 -2  1 
       0  0  0  0 ... 0  1 -2 
       0  0  0  0 ... 0  0  1 ]
   

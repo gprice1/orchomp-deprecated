@@ -35,6 +35,25 @@
 namespace orchomp{
 
 
+inline void mod::getRandomState( chomp::MatX & state ){
+    assert( n_dof > 0 );
+    if ( size_t( state.cols()) != n_dof ){
+        state.resize( 1, n_dof );
+    }
+
+    for ( size_t i = 0; i < n_dof; i ++ ){
+         const double rand_val = double( rand() ) / double(RAND_MAX);
+         state(i) = lowerJointLimits[i] 
+                    + (upperJointLimits[i]-lowerJointLimits[i])
+                    * rand_val;
+         debugStream << "Got random joint value - index: "
+                     << i << "\tLower: " << lowerJointLimits[i]
+                     << "\tFound: " << state(i) 
+                     << "\tUpper: " << upperJointLimits[i] << std::endl;
+    }
+}
+         
+        
 void mod::parsePoint( std::istream& sinput, chomp::MatX & point ){
     if ( active_indices.size() <= 0 ){
         RAVELOG_ERROR("n_dof must be set before states can be added" );
@@ -42,7 +61,9 @@ void mod::parsePoint( std::istream& sinput, chomp::MatX & point ){
     }
 
     point.resize( 1, active_indices.size() );
-    for ( size_t i = 0; i <active_indices.size() ; i ++ ){ sinput >> point(i);}   
+    for ( size_t i = 0; i <active_indices.size() ; i ++ ){
+        sinput >> point(i);
+    }   
 
     debugStream << "\t\t-Added Point: " << point << std::endl;
 }
@@ -60,27 +81,32 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
       if (!sinput){ break; }
       if (cmd == "loadrobot"){
             std::string robot_location;
-            sinput >> robot_location; 
+            sinput >> robot_location;
+            debugStream << "Location: " << robot_location << std::endl;
+            if (!environment.get() ){
+                debugStream << "There is no Environment" << std::endl;
+            }
             environment->Load( robot_location.c_str() );
+            debugStream << "Done loading robot" << std::endl;
       }
 
       else if (cmd == "robot")
       {
-         std::string robot_name;
          sinput >> robot_name;
 
-         if (robot) { 
+         if (robot.get()) { 
              throw OpenRAVE::openrave_exception(
                         "Only one robot can be passed!");
          }
-         OpenRAVE::RobotBasePtr rob =
-                environment->GetRobot( robot_name.c_str() );
-         robot = rob.get();
-         active_indices = robot->getActiveDOFIndices();
-        
-         if (!robot) {
+         robot = environment->GetRobot( robot_name.c_str() );
+         active_indices = robot->GetActiveDOFIndices();
+         robot->GetDOFLimits( lowerJointLimits, upperJointLimits,
+                              active_indices);
+         n_dof = active_indices.size();
+
+         if (!robot.get()) {
                 throw OpenRAVE::openrave_exception(
-                        "Only one robot can be passed!");
+                        "Robot name not valid");
          }
       }else if (cmd =="n") {
             sinput >> info.n;
@@ -96,7 +122,14 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
             parsePoint( sinput, q0 );
       }else if ( cmd == "q1" ){
             parsePoint( sinput, q1);
+      }else if ( cmd == "randomstart" ){
+            getRandomState( q0 );
+            debugStream << "\t\tRandom Start: " << q0 << std::endl;
+      }else if ( cmd == "randomend" ){
+            getRandomState( q1 );
+            debugStream << "\t\tRandom end: " << q1 << std::endl;
       }
+    
       else if ( cmd == "dolocal"  ){ info.doLocal   = true;  }
       else if ( cmd == "nolocal"  ){ info.doLocal   = false; }
       else if ( cmd == "doglobal" ){ info.doGlobal  = true;  } 
@@ -112,6 +145,14 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
           throw OpenRAVE::openrave_exception("Bad arguments!");
       }
    }
+
+   if (size_t( q0.cols() )!= active_indices.size() ){
+       std::vector< OpenRAVE::dReal > values;
+       robot->GetDOFValues( values, active_indices );
+       vectorToMat( values, q0 );
+   }
+
+
    
 #endif
 }
@@ -134,9 +175,10 @@ void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
 }
 void mod::parseAddFieldFromObsArray(std::ostream & sout, std::istream& sinput)
 {
-
 }
-
+void mod::parseExecute(std::ostream & sout, std::istream& sinput)
+{
+}
 
 
 } /* orchomp namespace */

@@ -8,7 +8,6 @@ include(mzsettings.cmake)
 
 set(BASE_LIBS
   ${OPENGL_LIBRARY}
-  ${CCD_LDFLAGS}
 )
 
 set(GUI_LIBS
@@ -21,4 +20,3 @@ add_subdirectory(mzcommon)
 include_directories(mzcommon)
 
 add_subdirectory(chomp)
-

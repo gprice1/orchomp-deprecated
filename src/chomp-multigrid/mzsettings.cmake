@@ -18,7 +18,6 @@ find_library(EXPAT_LIBRARY expat)
 find_library(GLUT_LIBRARY glut)
 
 pkg_search_module(EIGEN3 REQUIRED eigen3>=3)
-pkg_search_module(CCD libccd ccd)
 pkg_search_module(CAIRO cairo)
 
 if (CAIRO_FOUND)

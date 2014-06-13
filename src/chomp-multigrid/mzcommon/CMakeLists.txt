@@ -12,8 +12,7 @@ set(mzcommon_srcs
   HeightMap.cpp
   DtGrid.cpp
   Geom2.cpp
-  glstuff.cpp
-  )
+  glstuff.cpp)
 
 if (GLEW_FOUND)
   set(mzcommon_srcs ${mzcommon_srcs} GlFramebufferObject.cpp)
@@ -39,5 +38,4 @@ target_link_libraries(testgeom2 mzcommon ${CAIRO_LIBRARIES})
 else()
 target_link_libraries(testgeom2 mzcommon)
 endif()
-
 

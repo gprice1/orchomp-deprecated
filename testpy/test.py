@@ -1,11 +1,12 @@
 import openravepy as r
 import sys
-
+import time
 
 def main():
     e = r.Environment()
     m = r.RaveCreateModule( e, 'orchomp' )
     e.SetViewer( 'qtcoin' )
+    time.sleep(2.0) #sleep for a while to allow the viewer to set up
     name = ''
 
     if len( sys.argv ) > 1:
@@ -34,5 +35,14 @@ def main():
             current_command = ""
         else:
             current_command = current_command[:-1] + " "
-    
+
+   
+    while True:
+        s = raw_input( '-->' )
+        if s == 'q' or s == 'quit' or s == 'quit()' or s == 'end':
+            break
+        m.SendCommand( s )
+
+    del e
+
 main()

@@ -53,6 +53,8 @@ extern "C" {
 namespace orchomp
 {
 
+class mod;
+
 template <class T>
 class VoxelGrid {
     T * values;
@@ -132,14 +134,7 @@ public:
         {}
 };
 
-//this does nothing right now.
-class ORConstraintFactory : public chomp::ConstraintFactory {
-    
-    virtual chomp::Constraint* getConstraint(size_t t, size_t total) {
-        return new chomp::NullConstraint();
-    }
 
-};
 
 
 class Sphere{
@@ -219,7 +214,7 @@ public:
 
    //the trajectory, start, and endpoint.
    chomp::MatX trajectory, q0, q1;
-   ORConstraintFactory * factory;
+   chomp::ConstraintFactory * factory;
    
    //This holds basic info relating to an individual 
    //   run of chomp
@@ -229,15 +224,20 @@ public:
    chomp::DebugChompObserver observer;
 
    //these are useful for interfacing with the robot.
-   OpenRAVE::RobotBase * robot;
+   OpenRAVE::RobotBasePtr robot;
+   std::string robot_name;
    OpenRAVE::KinBodyPtr kinbody;
    std::vector< int > active_indices;
-   
+   size_t n_dof;
+
    //This holds information pertinent to the collision geometry, and
    //   assists chomp in computing collision gradients.
    SphereCollisionHelper * sphere_collider;
    chomp::ChompCollGradHelper * collisionHelper;
 
+    //the upper and lower limits for the joints.
+   std::vector< OpenRAVE::dReal > upperJointLimits,
+                                  lowerJointLimits;
 
    //This vector holds all of the sdf's.
    std::vector< sdf > sdfs;
@@ -246,7 +246,7 @@ public:
    //   weight.
    chomp::Chomp * chomper;
     
-
+   OpenRAVE::TrajectoryBasePtr trajectory_ptr;
 
    //_______________________PUBLIC MEMBER FUNCTIONS___________________//
    //visualize the collision geometry 
@@ -270,7 +270,10 @@ public:
 
    //destroy the current chomp iteration.
    int destroy(std::ostream & sout, std::istream& sinput);
-    
+   
+   //execute a construsted trajectory
+   int execute(std::ostream & sout, std::istream& sinput);
+ 
    //constructor that registers all of the commands to the openRave
    //   command line interface.
    mod(OpenRAVE::EnvironmentBasePtr penv);
@@ -297,15 +300,62 @@ public:
     void parseAddFieldFromObsArray(std::ostream & sout,
                                    std::istream& sinput);
     void parsePoint( std::istream & sinput, chomp::MatX & point);
-
+    void parseExecute( std::ostream & sout , std::istream & sinput );
     // A small helper function for creating a straight line trajectory between
     //  two endpoints:
     inline void createInitialTrajectory();
     
     inline std::vector< OpenRAVE::dReal > getIthStateAsVector( size_t i );
+    inline void getRandomState( chomp::MatX & vec );
 };
 
+
+class ORConstraint : public chomp::Constraint {
+  public:
+    mod * module;
+    int n_outputs;
+
+    ORConstraint( mod * module) : module( module ), n_outputs(1) {}
+    virtual void evaluateConstraints(const chomp::MatX& qt, 
+                                     chomp::MatX& h, 
+                                     chomp::MatX& H);
+    virtual size_t numOutputs(){
+        return n_outputs;
+    }
+};
+
+
+//this does nothing right now.
+class ORConstraintFactory : public chomp::ConstraintFactory {
+  public: 
+
+    mod * module;
+
+    virtual chomp::Constraint* getConstraint(size_t t, size_t total){
+        return new ORConstraint( module );
+    }
+
+    ORConstraintFactory( mod * module ) : module( module ){}
+
+    virtual void evaluate( const std::vector<chomp::Constraint*>& constraints, 
+                   const chomp::MatX& xi, chomp::MatX& h_tot,
+                   chomp::MatX& H_tot, int step);
+
+};
+
+
+
 void run_destroy(struct run * r);
+
+
+inline void vectorToMat(const std::vector< OpenRAVE::dReal > & vec,
+                             chomp::MatX & mat )
+{
+    assert( vec.size() > 0 );
+    mat.resize(1, vec.size() );
+
+    for ( size_t i = 0; i < vec.size() ; i ++ ){ mat(i) = vec[i]; }
+}
 
 
 } /* namespace orchomp */
