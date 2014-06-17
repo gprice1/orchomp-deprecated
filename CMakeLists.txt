@@ -14,10 +14,7 @@ add_library(orchomp SHARED
     src/orchomp_mod.cpp
     src/orchomp_kdata.cpp
     src/orchomp_mod_parse.cpp
-
-    src/chomp-multigrid/chomp/Chomp.cpp   
-    src/chomp-multigrid/chomp/ConstraintFactory.cpp   
-    src/chomp-multigrid/chomp/Constraint.cpp   
+    src/orchomp_distancefield.cpp
 
     src/utils/os.c
     src/utils/util_shparse.c

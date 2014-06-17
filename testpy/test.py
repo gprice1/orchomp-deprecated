@@ -1,12 +1,30 @@
 import openravepy as r
 import sys
 import time
+import numpy
+
+
+local_commands = set([ 'environment' ])
+
 
 def main():
     e = r.Environment()
     m = r.RaveCreateModule( e, 'orchomp' )
     e.SetViewer( 'qtcoin' )
-    time.sleep(2.0) #sleep for a while to allow the viewer to set up
+    e.Load( 'lab1.env.xml' );
+
+
+    Tz = r.matrixFromAxisAngle([0,0,numpy.pi/2])
+    Tz[0,3] = 0.4  
+    Tz[1,3] = 1.6
+    
+    print Tz
+    with e:
+        for body in e.GetBodies():
+            body.SetTransform(numpy.dot(Tz,body.GetTransform()))
+
+
+    time.sleep(3.0) #sleep for a while to allow the viewer to set up
     name = ''
 
     if len( sys.argv ) > 1:

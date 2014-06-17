@@ -34,6 +34,7 @@
 #include "chomp-multigrid/chomp/Chomp.h"
 #include "chomp-multigrid/chomp/Constraint.h"
 #include "chomp-multigrid/chomp/ConstraintFactory.h"
+#include "orchomp_distancefield.h"
 
 #include <openrave/openrave.h>
 #include <openrave/planningutils.h>
@@ -52,55 +53,8 @@ extern "C" {
 
 namespace orchomp
 {
-
 class mod;
-
-template <class T>
-class VoxelGrid {
-    T * values;
-    const size_t x_size ,y_size ,z_size;
-    const size_t y_by_z; //This is useful for calculating indices.
-    
-public:
-    VoxelGrid( size_t x, size_t y, size_t z ) :
-        values( new T[x*y*z]), x_size(x), y_size(y), z_size(z),
-        y_by_z( y*z ) {}
-    ~VoxelGrid(){ delete values; }
-    
-    size_t size_x(){ return x_size; }
-    size_t size_y(){ return y_size; }
-    size_t size_z(){ return z_size; }
-    size_t size( int dim ){
-        assert( dim < 3 && dim >=0 );
-        if ( dim == 0 ){ return x_size; }
-        if ( dim == 1 ){ return y_size; }
-        return z_size;
-    }
-
-    inline T & operator()( size_t x, size_t y, size_t z ){
-        assert_bounds( x, y, z );
-        return values[ x*y_by_z + y*z_size + z ];
-    }
-    
-    /*
-    inline const T & operator()( size_t x, size_t y, size_t z ){
-        assert_bounds( x, y, z );
-        return values[ x*y_by_z + y*z_size + z ];
-    }
-    */
-    inline void assert_bounds( size_t x, size_t y, size_t z ){
-        assert( x >= 0 );
-        assert( x < x_size );
-        assert( y >= 0 );
-        assert( y < y_size );
-        assert( z >= 0 );
-        assert( z < z_size );
-    }
-};
-        
-class sdf{
-    int garbage;
-};
+class Sphere;
 
 //this is a structure used to hold and initialize values
 //  for an eventual call to chomp.
@@ -135,68 +89,47 @@ public:
 };
 
 
-
-
-class Sphere{
-    public: 
-        // The radius of the sphere
-        double radius;
-
-        //a pointer to the kinBody that
-        //the sphere comes off of.
-        OpenRAVE::KinBody::Link * robot_link;
-
-        //The index of the link
-        int robot_linkindex;   
-
-        //The transform between the coordinates of the
-        //  robot link and the sphere. Since it is a sphere,
-        //  rotation is meaningless, so it should just be an
-        //  xyz vector.
-        double pose[3];
-
-};
-
-
 class SphereCollisionHelper : public chomp::ChompCollisionHelper{
 public:
     
-   //a pointer to the robot model. 
-   OpenRAVE::RobotBase * robot;
-   
-   //a vector containing the collision geometry
-   std::vector<Sphere> spheres;
-
-   //the first <active_spheres> amount of spheres in the 
-   // above vector are active.
-   int n_active;
-
-   /* obstacle parameters */
-   //environmental collisions
-   double epsilon;
-   double obs_factor;
-   
-   //self-collisions
-   double epsilon_self;
-   double obs_factor_self;
+    //a pointer to the robot model. 
+    OpenRAVE::RobotBase * robot;
    
 
-   //the constuctor needs a pointer to the robot in addition to the spaces.
-   SphereCollisionHelper( size_t ncspace, size_t nwkspace, size_t nbodies, 
+    //a vector containing the collision geometry
+    std::vector< Sphere > spheres;
+    std::vector< Sphere > inactive_spheres;
+
+    //the first <active_spheres> amount of spheres in the 
+    // above vector are active.
+    int n_active;
+
+    /* obstacle parameters */
+    //environmental collisions
+    double epsilon;
+    double obs_factor;
+   
+    //self-collisions
+    double epsilon_self;
+    double obs_factor_self;
+   
+    
+    //the constuctor needs a pointer to the robot in addition to the spaces.
+    SphereCollisionHelper( size_t ncspace, size_t nwkspace, size_t nbodies, 
                           OpenRAVE::RobotBase * robot) :
-        ChompCollisionHelper( ncspace, nwkspace, nbodies ), robot( robot )
-   {
-   }
+            ChompCollisionHelper( ncspace, nwkspace, nbodies ), robot( robot )
+    {
+    }
 
-
-   //________________________Public Member Functions____________________//
-   virtual double getCost(const chomp::MatX& q,         // configuration
+   
+    //________________________Public Member Functions____________________//
+    virtual double getCost(const chomp::MatX& q,         // configuration
                           size_t body_index,     // which body
                           chomp::MatX& dx_dq, // Jacobian of workspace pos (nwkspace-by-ncspace)
                           chomp::MatX& cgrad); // gradient (Jacobian transpose)
                                         // of cost wrt workspace pos (ncspace-by-1)
 
-   int viewspheres( int argc, char * argv[], std::ostream& sout);
+    int viewspheres( int argc, char * argv[], std::ostream& sout);
 
 };
 
@@ -240,7 +173,7 @@ public:
                                   lowerJointLimits;
 
    //This vector holds all of the sdf's.
-   std::vector< sdf > sdfs;
+   std::vector< DistanceField > sdfs;
 
    //this is a pointer to the chomp class that will pull most of the
    //   weight.
@@ -305,8 +238,19 @@ public:
     //  two endpoints:
     inline void createInitialTrajectory();
     
-    inline std::vector< OpenRAVE::dReal > getIthStateAsVector( size_t i );
+    inline void getIthStateAsVector( size_t i,
+                std::vector< OpenRAVE::dReal > & state  );
+    inline void getStateAsVector( const chomp::MatX & state,
+                std::vector< OpenRAVE::dReal > & vec  );
     inline void getRandomState( chomp::MatX & vec );
+    inline void clampToLimits( chomp::MatX & state);
+    
+    void getSpheres();
+    bool isWithinLimits( const chomp::MatX & mat ) const;
+
+    void coutTrajectory() const;
+    void isTrajectoryWithinLimits() const;
+
 };
 
 

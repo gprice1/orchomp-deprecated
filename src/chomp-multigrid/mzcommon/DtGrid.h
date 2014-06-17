@@ -39,6 +39,7 @@
 #include "vec2u.h"
 #include "vec2.h"
 #include "HeightMap.h"
+#include "vec3.h"
 
 template <class real>
 class DtGrid_t: public Grid3_t<real> {

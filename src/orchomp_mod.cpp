@@ -41,6 +41,41 @@
 namespace orchomp
 {
 
+
+bool mod::isWithinLimits( const chomp::MatX & mat ) const{
+    assert( upperJointLimits.size() > 0 );
+    assert( lowerJointLimits.size() > 0 );
+    assert( mat.cols() > 0 );
+
+    for ( int i = 0; i < mat.cols(); i ++ ){
+        if ( mat(i) > upperJointLimits[i] ||
+             mat(i) < lowerJointLimits[i] ){
+            return false;
+        }
+    }
+    return true;
+}
+
+void mod::coutTrajectory() const
+{
+    for ( int i = 0; i < trajectory.rows(); i ++ ){
+
+
+        for ( int j = 0; j < trajectory.cols() ; j ++ ){
+
+            std::cout << trajectory( i, j ) << "\t";
+        }
+        std::cout << "\n";
+    }
+}
+void mod::isTrajectoryWithinLimits() const {
+    for( int i = 0; i < trajectory.rows(); i ++ ){
+        chomp::MatX test = trajectory.row(i);
+        assert( isWithinLimits( test ) );
+        debugStream << "Point " << i << " is within limits" << std::endl;
+    }
+}
+
 void ORConstraintFactory::evaluate(
                 const std::vector<chomp::Constraint*>& constraints, 
                 const chomp::MatX& xi, chomp::MatX& h_tot,
@@ -197,8 +232,42 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
 //    - There may be hidden dependency issues
 int mod::viewspheres(std::ostream& sout, std::istream& sinput)
 {
+
+    
+    OpenRAVE::EnvironmentMutex::scoped_lock lockenv(environment->GetMutex());
     parseViewSpheres( sout,  sinput);
 
+    if ( !sphere_collider ) { getSpheres() ; }
+    
+    char text_buf[1024];
+    
+    for ( size_t i=0; i < sphere_collider->spheres.size() ; i ++ ){
+        const Sphere & sphere = sphere_collider->spheres[i];
+
+        //make a kinbody sphere object to correspond to this sphere.
+        OpenRAVE::KinBodyPtr sbody = 
+                OpenRAVE::RaveCreateKinBody( environment );
+        sprintf( text_buf, "orcdchomp_sphere_%d", int(i));
+        sbody->SetName(text_buf);
+        
+
+        //set the dimensions and transform of the sphere.
+        std::vector< OpenRAVE::Vector > svec;
+
+        //get the position of the sphere in the world 
+        OpenRAVE::Transform t = 
+                sphere.body->GetLink(sphere.linkname)->GetTransform();
+        OpenRAVE::Vector v = t * OpenRAVE::Vector(sphere.pose);
+        
+        //set the radius of the sphere
+        v.w = sphere.radius; 
+
+        //give the kinbody the sphere parameters.
+        svec.push_back(v);
+        sbody->InitFromSpheres(svec, true);
+
+        environment->Add( sbody );
+    }
     return 0;
 }
 
@@ -216,7 +285,20 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
  //             with the current chomp style of gradients
 int mod::computedistancefield(std::ostream& sout, std::istream& sinput)
 {
+    // Add A distance field to the vector of distance fields.
+    sdfs.resize( sdfs.size() + 1 );
+
+    //lock the environment
+    OpenRAVE::EnvironmentMutex::scoped_lock(environment->GetMutex());
+    
+    //Parse the arguments
     parseComputeDistanceField( sout,  sinput);
+    
+    //extract the distance field to be created.
+    DistanceField & sdf = sdfs.back();
+    
+    sdf.createField( environment );
+
     return 0;
 }
 
@@ -261,12 +343,13 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
         //extract the current sphere
         const Sphere & current_sphere = spheres[ sphere_index ];
         //get the transformation of the body that the sphere is on.
-        const OpenRAVE::Transform t = current_sphere.robot_link->GetTransform();
+        const OpenRAVE::Transform t =
+                current_sphere.link->GetTransform();
         //get the transformation from the body to the sphere.
         const OpenRAVE::Vector v = t * OpenRAVE::Vector( current_sphere.pose );
         
         //calculate the jacobians - this is the jacobian of the workspace ... i think
-        robot->CalculateJacobian( current_sphere.robot_linkindex, v, jacobian);
+        robot->CalculateJacobian( current_sphere.linkindex, v, jacobian);
         
         //NOTE : I have the jacobian for each of the spheres, how do I transform this into
         // a cost, a jacobian, and a gradient?
@@ -298,6 +381,8 @@ int mod::create(std::ostream& sout, std::istream& sinput)
 
     parseCreate( sout,  sinput);
     
+    clampToLimits(q0);
+    clampToLimits(q1);
     //after the arguments have been collected, pass them to chomp
     createInitialTrajectory();
     
@@ -312,8 +397,10 @@ int mod::create(std::ostream& sout, std::istream& sinput)
 
      
     //TODO Compute signed distance field
+    
 
     //TODO setup collision geometry
+    getSpheres();
 
     //TODO setup momentum stuff ?? maybe ?? 
 
@@ -350,6 +437,9 @@ int mod::iterate(std::ostream& sout, std::istream& sinput)
 
 int mod::gettraj(std::ostream& sout, std::istream& sinput)
 {
+    
+    //get the trajectory from the chomp.
+    trajectory = chomper->xi;
 
     std::cout << "Getting Trajectory" << std::endl;
     OpenRAVE::EnvironmentMutex::scoped_lock lockenv;
@@ -360,6 +450,12 @@ int mod::gettraj(std::ostream& sout, std::istream& sinput)
     lockenv = OpenRAVE::EnvironmentMutex::scoped_lock(
               environment->GetMutex() );
    
+
+    debugStream << "Checking Trajectory" << std::endl;
+
+    isTrajectoryWithinLimits();
+    coutTrajectory();
+
     //setup the openrave trajectory pointer to receive the
     //  found trajectory.
     trajectory_ptr = OpenRAVE::RaveCreateTrajectory(environment);
@@ -375,13 +471,32 @@ int mod::gettraj(std::ostream& sout, std::istream& sinput)
     
     
     //For every state (each row is a state), extract the data,
-    //  and turn it into a vector, then give it to 
-    // TODO : make sure that this pointer arithmetic
-    //  actually works.
+    //  and turn it into a vector, then give it to
 
+
+    //get the start state as an openrave vector
+    std::vector< OpenRAVE::dReal > startState;
+    getStateAsVector( q0, startState );
+
+    //insert the start state into the trajectory
+    trajectory_ptr->Insert( 0, startState );
+
+    //get the rest of the trajectory
     for ( int i = 0; i < trajectory.rows(); i ++ ){
-        trajectory_ptr->Insert( i, getIthStateAsVector( i ) );
+        
+        std::vector< OpenRAVE::dReal > state;
+        getIthStateAsVector( i, state );
+        trajectory_ptr->Insert( i + 1, state );
+        
     }
+    
+    //get the start state as an openrave vector
+    std::vector< OpenRAVE::dReal > endState;
+    getStateAsVector( q1, endState );
+
+    //insert the start state into the trajectory
+    trajectory_ptr->Insert( trajectory.rows(), endState );
+
 
     //this is about changing the timing or something
     /*
@@ -391,12 +506,12 @@ int mod::gettraj(std::ostream& sout, std::istream& sinput)
     */
     
     //TODO : check for collisions
-
+    
+    debugStream << "Retiming Trajectory" << std::endl;
     //this times the trajectory so that it can be
     //  sent to a planner
     OpenRAVE::planningutils::RetimeActiveDOFTrajectory(
-        trajectory_ptr, robot, false, 0.2, 0.2, 
-        "LinearTrajectoryRetimer" ,"");
+                             trajectory_ptr, robot);
 
     debugStream << "Serializing trajectory output" << std::endl; 
     //serialize the trajectory and send it over the 
@@ -453,20 +568,143 @@ inline void mod::createInitialTrajectory()
     //fill the trajectory matrix 
     for (size_t i=0; i<info.n; ++i) {
         trajectory.row(i) = (i+1)*(q1-q0)/(info.n+1) + q0;
+
+        chomp::MatX test = trajectory.row(i);
+        assert( isWithinLimits( test ));
     }
 }
 
-inline std::vector< OpenRAVE::dReal >
-mod::getIthStateAsVector( size_t i )
-{
+inline void mod::clampToLimits( chomp::MatX & state ){
+    for ( int i = 0; i < state.cols() ; i ++ ){
+        if ( state(i) > upperJointLimits[i] ){
+            state(i) = upperJointLimits[i];
+        }
+        else if ( state(i) < lowerJointLimits[i] ){
+            state(i) = lowerJointLimits[i];
+        }
+    }
+}
+
+
+inline void mod::getStateAsVector( const chomp::MatX & state,
+                                   std::vector< OpenRAVE::dReal > & vec ){
 
     const int width = trajectory.cols();
+    vec.resize( width );
+
+    for ( int j = 0; j < width; j ++ ){
+        vec[j] = state(j);
+    }
+}
+
+
+inline void mod::getIthStateAsVector( size_t i, 
+                      std::vector< OpenRAVE::dReal > & state )
+{
     
+    const int width = trajectory.cols();
+    state.resize( width );
+
+    for ( int j = 0; j < width; j ++ ){
+        state[j] = trajectory(i, j );
+    }
+
+    //return state;
+    /*
     return  std::vector< OpenRAVE::dReal > ( 
                 trajectory.row( i ).data(), 
                 trajectory.row( i ).data() + width );
+    */
 
 }
+
+void mod::getSpheres()
+{
+    //TODO make sure that nbodies is correct
+    sphere_collider = new SphereCollisionHelper(
+                          n_dof, 6, n_dof, robot.get());
+    
+    //a vector holding all of the pertinent bodies in the scene
+    std::vector<OpenRAVE::KinBodyPtr> bodies;
+
+    /* consider the robot kinbody, as well as all grabbed bodies */
+    robot->GetGrabbed(bodies);
+    bodies.push_back(environment->GetRobot( robot->GetName() ));
+    
+    //iterate over all of the bodies.
+    for (size_t i=0; i < bodies.size(); i++)
+    {
+        OpenRAVE::KinBodyPtr body = bodies[i];
+
+        //get the spheres of the body by creating an xml reader to
+        //  extract the spheres from the xml files of the objects
+        boost::shared_ptr<orchomp::kdata> data_reader = 
+            boost::dynamic_pointer_cast<orchomp::kdata>
+                (body->GetReadableInterface("orcdchomp"));
+         
+        //bail if there is no or chomp data.
+        if (!data_reader) {
+            debugStream << "Failed to get: " << body->GetName() << std::endl;
+            throw OpenRAVE::openrave_exception(
+                "kinbody does not have a <orcdchomp> tag defined!");
+        }
+        
+        
+        for (size_t j = 0; j < data_reader->spheres.size(); j++ )
+        {
+            
+            Sphere & sphere = data_reader->spheres[j];
+            
+            sphere.body = body.get();
+            /* what robot link is this sphere attached to? */
+            if (body.get() == robot.get()){
+                sphere.link = robot->GetLink(sphere.linkname).get();
+            }
+            //the sphere is attached to a grabbed kinbody
+            else{
+                sphere.link = robot->IsGrabbing(body).get();
+            }
+
+            //if the link does not exist, throw an exception
+            if(!sphere.link){ 
+               throw OPENRAVE_EXCEPTION_FORMAT(
+                     "link %s in <orcdchomp> does not exist.",
+                     sphere.linkname, OpenRAVE::ORE_Failed);
+            }
+            
+            sphere.linkindex = sphere.link->GetIndex();
+            
+            //if the body is not the robot, then get the transform
+            if ( body.get() != robot.get() )
+            {
+                OpenRAVE::Transform T_w_klink = 
+                    body->GetLink(sphere.linkname)->GetTransform();
+                OpenRAVE::Transform T_w_rlink = sphere.link->GetTransform();
+                OpenRAVE::Vector v = T_w_rlink.inverse()
+                                     * T_w_klink 
+                                     * OpenRAVE::Vector(sphere.pose);
+                sphere.pose[0] = v.x;
+                sphere.pose[1] = v.y;
+                sphere.pose[2] = v.z;
+            }
+             
+            /* is this link affected by the robot's active dofs? */
+            for (size_t k = 0; k < n_dof; k++){
+                if ( robot->DoesAffect( active_indices[k],
+                                        sphere.linkindex    )){
+                    sphere_collider->spheres.push_back( sphere );
+                    break;
+                }
+                //if the sphere is not active, add it to the inactive
+                //  vector
+                else if ( k == n_dof - 1 ) {
+                    sphere_collider->inactive_spheres.push_back( sphere);
+                }
+            }
+        }
+    }
+}
+
 
 } /* namespace orchomp */
 

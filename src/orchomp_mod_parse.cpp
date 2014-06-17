@@ -35,6 +35,8 @@
 namespace orchomp{
 
 
+
+
 inline void mod::getRandomState( chomp::MatX & state ){
     assert( n_dof > 0 );
     if ( size_t( state.cols()) != n_dof ){
@@ -99,10 +101,21 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
                         "Only one robot can be passed!");
          }
          robot = environment->GetRobot( robot_name.c_str() );
+
+         if ( !robot.get() ){              
+             throw OpenRAVE::openrave_exception(
+                        "Failed to get robot");
+         }
          active_indices = robot->GetActiveDOFIndices();
-         robot->GetDOFLimits( lowerJointLimits, upperJointLimits,
-                              active_indices);
+         robot->GetActiveDOFLimits( lowerJointLimits, upperJointLimits);
          n_dof = active_indices.size();
+         
+         std::cout << "Active Indices: " ;
+         for ( size_t i = 0; i < active_indices.size(); i ++ ){
+             std::cout << active_indices[i];
+         }
+         std::cout << std::endl;
+
 
          if (!robot.get()) {
                 throw OpenRAVE::openrave_exception(
@@ -171,7 +184,63 @@ void mod::parseDestroy(std::ostream & sout, std::istream& sinput)
 }
 void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
 {
+    
+    DistanceField & sdf = sdfs.back();
 
+    std::string cmd, cache_filename("none passed");
+
+    /* parse command line arguments */
+    while (!sinput.eof () ){
+        sinput >> cmd;
+        debugStream << "\t-ExecutingCommand: " << cmd << std::endl;
+
+        if ( cmd == "kinbody" ){
+            std::string name;
+            sinput >> name;
+          
+            if (sdf.kinbody.get()){
+                throw OpenRAVE::openrave_exception(
+                    "Only one kinbody can be passed!");
+            }
+            
+            //get the kinbody
+            sdf.kinbody = environment->GetKinBody(name.c_str());
+
+            if (!sdf.kinbody.get()){
+                throw OpenRAVE::openrave_exception(
+                    "Could not find kinbody with that name!");
+            }
+
+        }
+        else if (cmd == "aabb_padding"){
+            sinput >> sdf.aabb_padding;
+        }else if (cmd == "cube_extent"){
+            sinput >> sdf.cube_extent;
+        }else if (cmd == "cache_filename"){
+            sinput >> cache_filename;
+        }
+        
+        //handle bad arguments
+        else{
+            while ( !sinput.eof() ){
+                std::string argument;
+                sinput >> argument;
+                RAVELOG_ERROR("argument %s not known!\n", argument.c_str());
+                throw OpenRAVE::openrave_exception("Bad arguments!");
+            }
+        }
+
+   }
+ 
+   RAVELOG_INFO("Using kinbody %s.\n", kinbody->GetName().c_str());
+   RAVELOG_INFO("Using aabb_padding |%f|.\n", sdf.aabb_padding);
+   RAVELOG_INFO("Using cube_extent |%f|.\n", sdf.cube_extent);
+   RAVELOG_INFO("Using cache_filename |%s|.\n", cache_filename.c_str());
+
+   if( cache_filename != "none passed" ){
+       debugStream << "Uploading sdf from file has not been implemented"
+                   << std::endl;
+   }
 }
 void mod::parseAddFieldFromObsArray(std::ostream & sout, std::istream& sinput)
 {
