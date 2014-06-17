@@ -241,8 +241,17 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
     
     char text_buf[1024];
     
-    for ( size_t i=0; i < sphere_collider->spheres.size() ; i ++ ){
-        const Sphere & sphere = sphere_collider->spheres[i];
+    const size_t n_active = active_spheres.size();
+    const size_t n_inactive = inactive_spheres.size();
+
+    for ( size_t i=0; i < n_active + n_inactive ; i ++ )
+    {
+        //extract the current sphere
+        //  if i is less than n_active, get a sphere from active_spheres,
+        //  else, get a sphere from inactive_spheres
+        const Sphere & sphere = (i < n_active ?
+                                 active_spheres[i] :
+                                 inactive_spheres[i-n_active]);
 
         //make a kinbody sphere object to correspond to this sphere.
         OpenRAVE::KinBodyPtr sbody = 
@@ -318,49 +327,156 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
 {
 
     //resize the matrices:
+    //TODO make sure that dx_dq dimensions are correct
     dx_dq.conservativeResize( nwkspace, ncspace );
-    cgrad.conservativeResize( ncspace, 1 );
+    cgrad.conservativeResize( nwkspace, 1 );
+    
+    //
+    if( body_index == 0 ){
+        std::vector< OpenRAVE::dReal > vec;
+        module->getStateAsVector( q, vec );
+        module->robot->SetActiveDOFValues(vec);
+    }
 
+    //loop through all of the active spheres,
+    //and check their collision status.
+    
+    //extract the current sphere
+    const Sphere & current_sphere = module->active_spheres[ body_index ];
+
+    //get the transformation of the body that the sphere is on.
+    const OpenRAVE::Transform t =
+            current_sphere.link->GetTransform();
+
+    //get the transformation from the body to the sphere.
+    const OpenRAVE::Vector current_pos =
+                           t * OpenRAVE::Vector( current_sphere.pose );
+    
+    vec3 trans( current_pos[0], current_pos[1], current_pos[2] );
+    vec3 gradient;
+    OpenRAVE::dReal dist; 
+    
+    //check all of the sdfs, and get the one with the least cost
+    for ( size_t i = 0; i < module->sdfs.size(); i ++ ){
+        
+        //if the point is not within the field, do not get the cost
+        if ( !module->sdfs[i].grid.isInside( trans )){
+            continue;
+        }
+
+        OpenRAVE::dReal current_dist;
+        vec3 current_gradient; 
+
+        //get the distance and gradient.
+        current_dist = module->sdfs[i].getDist( trans, current_gradient );
+        
+        if (current_dist < dist) {
+            dist = current_dist;
+            gradient = current_gradient;
+        }
+    }
+    
+    //adjust the value of the distance by the radius of the
+    //  sphere to account for the size of the sphere
+    dist -= current_sphere.radius;
+
+    OpenRAVE::dReal cost;
+
+    //compute the cost and gradient function based on the returned
+    //  of get dist, and the epsilon value of the planner
+    //if the cost is negative, invert the gradient, and calculate the
+    //  cost modified by epsilon
+    if (dist < 0) {
+        gradient *= -1;
+        cost = -dist + 0.5*epsilon;
+
+    } else if (dist <= epsilon) {
+
+        const double f = dist - epsilon;
+        gradient *= f*0.5/epsilon;
+        cost = f*f * 0.5/epsilon;
+
+    //if the gradient is far away enough from the object,
+    //  then set the costs and gradient to zero
+    } else {
+        gradient = vec3(0,0,0);
+        cost = 0;
+    }
+
+    //create the structure for the jacobian computation
     std::vector< OpenRAVE::dReal > jacobian;
 
-    double cost = 0.0;
-    // this should be correct:q.data();
+    //calculate the jacobians - this is the jacobian of the workspace
+    //  ... i think
+    module->robot->CalculateJacobian( current_sphere.linkindex, v, jacobian);
     
-    //NOTE : remove the following test code from the final.
-    //TODO REMOVE THIS !!!
-    double * pose_ptr = (double*)q.data();
-    for ( int i = 0; i < q.size(); i ++ ){ assert( q( i ) == pose_ptr[i] ); }
-
-    //TODO make sure that the bounds on this are valid
-    //enable the eigen array format to interface with the current position, q
-    std::vector<OpenRAVE::dReal> vec( pose_ptr, pose_ptr + q.size()  );
-
-    robot->SetActiveDOFValues(vec);
+    assert( jacobian.size() == ncspace * nwkspace );
     
-    //loop through all of the active spheres, and check their collision status.
-    for (int sphere_index = 0; sphere_index < n_active; sphere_index ++ )
+    //copy over data
+    for (  size_t i = 0; i < nwkspace; i ++ ){
+
+        //copy the gradient information
+        cgrad(i) = gradient[i];
+
+        for ( size_t j = 0; j < ncspace; j ++ ){
+
+            //copy the jacobian information
+            dx_dq( i, j ) = jacobian[ i * ncspace + j ];
+        }
+    }
+    
+    //Self Collision Detection and gradient code
+
+    //index over all the other spheres, and check for collisions.
+    const size_t n_active = active_spheres.size();
+    const size_t n_inactive = inactive_spheres.size();
+
+    for ( size_t i=0; i < n_active + n_inactive ; i ++ )
     {
+        
+        //if the current index would give the current sphere, skip it.
+        if ( i == body_index ) { continue;}
+
         //extract the current sphere
-        const Sphere & current_sphere = spheres[ sphere_index ];
+        //  if i is less than n_active, get a sphere from active_spheres,
+        //  else, get a sphere from inactive_spheres
+        const Sphere & collision_sphere = (i < n_active ?
+                                           active_spheres[i] :
+                                           inactive_spheres[i-n_active]);
+        
+        //if the spheres are attached to the same link, do not compute
+        //  collisions
+        if (current_sphere.linkindex == collision_sphere.linkindex){
+            continue;
+        }
+        
+        //TODO : is this something that I want?
+        //if the spheres are on adjacent bodies, do not test them for collisions
+        if( current_sphere.body->Adjacent(current_sphere.linkindex,
+                                          collision_sphere.linkindex)){
+            continue;
+        }
+
         //get the transformation of the body that the sphere is on.
-        const OpenRAVE::Transform t =
-                current_sphere.link->GetTransform();
+        const OpenRAVE::Transform link_xform =
+                collision_sphere.link->GetTransform();
+
         //get the transformation from the body to the sphere.
-        const OpenRAVE::Vector v = t * OpenRAVE::Vector( current_sphere.pose );
+        const OpenRAVE::Vector collision_pos =
+                            link_xform * OpenRAVE::Vector( current_sphere.pose );
         
-        //calculate the jacobians - this is the jacobian of the workspace ... i think
-        robot->CalculateJacobian( current_sphere.linkindex, v, jacobian);
+        const OpenRAVE::Vector diff = collision_pos - current_pos;
+        const OpenRAVE::dReal dist_sqrd = diff[0]*diff[0] + 
+                                          diff[1]*diff[1] + 
+                                          diff[2]*diff[2] ; 
+
+        // get the distance between the spheres, with padding corresponding to
+        //  epsilon.
+        OpenRAVE::dReal dist = sqrt( dist_sqrd )
+                               - collision_sphere.radius
+                               - current_sphere.radius
+                               - epsilon_self;
         
-        //NOTE : I have the jacobian for each of the spheres, how do I transform this into
-        // a cost, a jacobian, and a gradient?
-        
-        // TODO : Make this average the spheres and get stuff done.
-
-
-    } 
-
-    
-
     return cost;
 }
 
@@ -401,6 +517,13 @@ int mod::create(std::ostream& sout, std::istream& sinput)
 
     //TODO setup collision geometry
     getSpheres();
+
+    //create the sphere collider to actually 
+    //  use the sphere information
+    //TODO make sure that nbodies is correct
+    sphere_collider = new SphereCollisionHelper(
+                          n_dof, 3, active_spheres.size(), this);
+
 
     //TODO setup momentum stuff ?? maybe ?? 
 
@@ -620,9 +743,7 @@ inline void mod::getIthStateAsVector( size_t i,
 
 void mod::getSpheres()
 {
-    //TODO make sure that nbodies is correct
-    sphere_collider = new SphereCollisionHelper(
-                          n_dof, 6, n_dof, robot.get());
+    
     
     //a vector holding all of the pertinent bodies in the scene
     std::vector<OpenRAVE::KinBodyPtr> bodies;
@@ -642,8 +763,8 @@ void mod::getSpheres()
             boost::dynamic_pointer_cast<orchomp::kdata>
                 (body->GetReadableInterface("orcdchomp"));
          
-        //bail if there is no or chomp data.
-        if (!data_reader) {
+        //bail if there is no orcdchomp data.
+        if (data_reader.get() == NULL ) {
             debugStream << "Failed to get: " << body->GetName() << std::endl;
             throw OpenRAVE::openrave_exception(
                 "kinbody does not have a <orcdchomp> tag defined!");
@@ -692,17 +813,17 @@ void mod::getSpheres()
             for (size_t k = 0; k < n_dof; k++){
                 if ( robot->DoesAffect( active_indices[k],
                                         sphere.linkindex    )){
-                    sphere_collider->spheres.push_back( sphere );
+                    active_spheres.push_back( sphere );
                     break;
                 }
                 //if the sphere is not active, add it to the inactive
                 //  vector
                 else if ( k == n_dof - 1 ) {
-                    sphere_collider->inactive_spheres.push_back( sphere);
+                    inactive_spheres.push_back( sphere);
                 }
             }
         }
-    }
+    }    
 }
 
 

@@ -92,13 +92,9 @@ public:
 class SphereCollisionHelper : public chomp::ChompCollisionHelper{
 public:
     
-    //a pointer to the robot model. 
-    OpenRAVE::RobotBase * robot;
-   
-
-    //a vector containing the collision geometry
-    std::vector< Sphere > spheres;
-    std::vector< Sphere > inactive_spheres;
+    // a pointer to the module for acces to stuff like the collision
+    //  geometry
+    mod * module;
 
     //the first <active_spheres> amount of spheres in the 
     // above vector are active.
@@ -116,8 +112,8 @@ public:
     
     //the constuctor needs a pointer to the robot in addition to the spaces.
     SphereCollisionHelper( size_t ncspace, size_t nwkspace, size_t nbodies, 
-                          OpenRAVE::RobotBase * robot) :
-            ChompCollisionHelper( ncspace, nwkspace, nbodies ), robot( robot )
+                          mod * module) :
+            ChompCollisionHelper( ncspace, nwkspace, nbodies ), module(module)
     {
     }
 
@@ -129,7 +125,6 @@ public:
                           chomp::MatX& cgrad); // gradient (Jacobian transpose)
                                         // of cost wrt workspace pos (ncspace-by-1)
 
-    int viewspheres( int argc, char * argv[], std::ostream& sout);
 
 };
 
@@ -140,83 +135,87 @@ class mod : public OpenRAVE::ModuleBase
 {
 public:
 
-   //____________________PUBLIC MEMBER VARIABLES____________________//
-   OpenRAVE::EnvironmentBasePtr environment; /* filled on module creation */
+    //____________________PUBLIC MEMBER VARIABLES____________________//
+    OpenRAVE::EnvironmentBasePtr environment; /* filled on module creation */
+ 
+    // NOTE : Most of the below variables were in the run structure.
 
-   // NOTE : Most of the below variables were in the run structure.
-
-   //the trajectory, start, and endpoint.
-   chomp::MatX trajectory, q0, q1;
-   chomp::ConstraintFactory * factory;
+    //the trajectory, start, and endpoint.
+    chomp::MatX trajectory, q0, q1;
+    chomp::ConstraintFactory * factory;
    
-   //This holds basic info relating to an individual 
-   //   run of chomp
-   ChompInfo info;
+    //This holds basic info relating to an individual 
+    //   run of chomp
+    ChompInfo info;
   
-   // This observes chomp for general debugging purposes
-   chomp::DebugChompObserver observer;
+    // This observes chomp for general debugging purposes
+    chomp::DebugChompObserver observer;
 
-   //these are useful for interfacing with the robot.
-   OpenRAVE::RobotBasePtr robot;
-   std::string robot_name;
-   OpenRAVE::KinBodyPtr kinbody;
-   std::vector< int > active_indices;
-   size_t n_dof;
+    //these are useful for interfacing with the robot.
+    OpenRAVE::RobotBasePtr robot;
+    std::string robot_name;
+    OpenRAVE::KinBodyPtr kinbody;
+    std::vector< int > active_indices;
+    size_t n_dof;
 
-   //This holds information pertinent to the collision geometry, and
-   //   assists chomp in computing collision gradients.
-   SphereCollisionHelper * sphere_collider;
-   chomp::ChompCollGradHelper * collisionHelper;
+    //a vector containing the collision geometry
+    std::vector< Sphere > active_spheres, inactive_spheres;
+
+
+    //This holds information pertinent to the collision geometry, and
+    //   assists chomp in computing collision gradients.
+    SphereCollisionHelper * sphere_collider;
+    chomp::ChompCollGradHelper * collisionHelper;
 
     //the upper and lower limits for the joints.
-   std::vector< OpenRAVE::dReal > upperJointLimits,
+    std::vector< OpenRAVE::dReal > upperJointLimits,
                                   lowerJointLimits;
 
-   //This vector holds all of the sdf's.
-   std::vector< DistanceField > sdfs;
+    //This vector holds all of the sdf's.
+    std::vector< DistanceField > sdfs;
 
-   //this is a pointer to the chomp class that will pull most of the
-   //   weight.
-   chomp::Chomp * chomper;
+    //this is a pointer to the chomp class that will pull most of the
+    //   weight.
+    chomp::Chomp * chomper;
     
-   OpenRAVE::TrajectoryBasePtr trajectory_ptr;
+    OpenRAVE::TrajectoryBasePtr trajectory_ptr;
 
-   //_______________________PUBLIC MEMBER FUNCTIONS___________________//
-   //visualize the collision geometry 
-   int viewspheres(std::ostream & sout, std::istream& sinput);
+    //_______________________PUBLIC MEMBER FUNCTIONS___________________//
+    //visualize the collision geometry 
+    int viewspheres(std::ostream & sout, std::istream& sinput);
 
-   //compute the distance field for use in collision detection, and
-   //   descending the gradient out of collision
-   int computedistancefield(std::ostream & sout, std::istream& sinput);
+    //compute the distance field for use in collision detection, and
+    //   descending the gradient out of collision
+    int computedistancefield(std::ostream & sout, std::istream& sinput);
 
-   // NOTE : Find out what this is supposed to do
-   int addfield_fromobsarray(std::ostream & sout, std::istream& sinput);
+    // NOTE : Find out what this is supposed to do
+    int addfield_fromobsarray(std::ostream & sout, std::istream& sinput);
 
-   //
-   int create(std::ostream & sout, std::istream& sinput);
+    //
+    int create(std::ostream & sout, std::istream& sinput);
 
-   //GO through one iteration of chomp
-   int iterate(std::ostream & sout, std::istream& sinput);
+    //GO through one iteration of chomp
+    int iterate(std::ostream & sout, std::istream& sinput);
 
-   //Get the current trajectory
-   int gettraj(std::ostream & sout, std::istream& sinput);
+    //Get the current trajectory
+    int gettraj(std::ostream & sout, std::istream& sinput);
 
-   //destroy the current chomp iteration.
-   int destroy(std::ostream & sout, std::istream& sinput);
+    //destroy the current chomp iteration.
+    int destroy(std::ostream & sout, std::istream& sinput);
    
-   //execute a construsted trajectory
-   int execute(std::ostream & sout, std::istream& sinput);
+    //execute a construsted trajectory
+    int execute(std::ostream & sout, std::istream& sinput);
  
-   //constructor that registers all of the commands to the openRave
-   //   command line interface.
-   mod(OpenRAVE::EnvironmentBasePtr penv);
+    //constructor that registers all of the commands to the openRave
+    //   command line interface.
+    mod(OpenRAVE::EnvironmentBasePtr penv);
 
-   //Destructor
-   virtual ~mod() {}
-   void Destroy() { RAVELOG_INFO("module unloaded from environment\n"); }
+    //Destructor
+    virtual ~mod() {}
+    void Destroy() { RAVELOG_INFO("module unloaded from environment\n"); }
 
-   /* This is called on e.LoadProblem(m, 'command') */
-   int main(const std::string& cmd)
+    /* This is called on e.LoadProblem(m, 'command') */
+    int main(const std::string& cmd)
        { RAVELOG_INFO("module init cmd: %s\n", cmd.c_str()); return 0; }
 
 

@@ -146,13 +146,8 @@ void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & environment )
    
 }
 
-OpenRAVE::dReal DistanceField::getDist(
-                        const OpenRAVE::Transform & object_in_world,
-                        vec3 & gradient ){
-    vec3 trans;
-    for ( int i = 0; i < 3; i ++ ){
-        trans[i] = object_in_world.trans[i];
-    }
+OpenRAVE::dReal DistanceField::getDist( const vec3 & trans, vec3 & gradient ){
+
     
     return grid.sample( trans, gradient );
 }

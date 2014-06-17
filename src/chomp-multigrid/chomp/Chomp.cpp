@@ -118,7 +118,7 @@ namespace chomp {
       cspace_vel = 0.5 * (q2 - q0) * c.inv_dt;        
       cspace_accel = (q0 - 2.0*q1 + q2) * (c.inv_dt * c.inv_dt);
 
-      for (size_t u=0; u<chelper->nbodies; ++u) {
+      for (size_t u=0; u < chelper->nbodies; ++u) {
 
         float cost = chelper->getCost(q1, u, dx_dq, cgrad);
 

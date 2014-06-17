@@ -43,7 +43,7 @@ public:
     
     ~DistanceField(){}
 
-    OpenRAVE::dReal getDist( const OpenRAVE::Transform & object_in_world,
+    OpenRAVE::dReal getDist( const vec3 & trans,
                              vec3 & gradient);
     
 
