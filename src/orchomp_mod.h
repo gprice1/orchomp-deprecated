@@ -108,22 +108,36 @@ public:
     //self-collisions
     double epsilon_self;
     double obs_factor_self;
-   
+    
+    //________________________Public Member Functions____________________//
     
     //the constuctor needs a pointer to the robot in addition to the spaces.
     SphereCollisionHelper( size_t ncspace, size_t nwkspace, size_t nbodies, 
                           mod * module) :
-            ChompCollisionHelper( ncspace, nwkspace, nbodies ), module(module)
+            ChompCollisionHelper( ncspace, nwkspace, nbodies ), module(module),
+            epsilon( 0.2 ), epsilon_self( 0.2 )
     {
     }
 
-   
-    //________________________Public Member Functions____________________//
-    virtual double getCost(const chomp::MatX& q,         // configuration
-                          size_t body_index,     // which body
-                          chomp::MatX& dx_dq, // Jacobian of workspace pos (nwkspace-by-ncspace)
-                          chomp::MatX& cgrad); // gradient (Jacobian transpose)
-                                        // of cost wrt workspace pos (ncspace-by-1)
+    // q - the current configuration
+    // body_index - the index of the body to get the gradient, cost and jacobains
+    //              for.
+    // dx_dq - jacobain of workspace position
+    //         dims: nwkspace-by-ncspace
+    // cgrad - gradient (jacobian transpose of cost wrt workspace position
+    //         dims : ncspace-by-1
+    virtual double getCost(const chomp::MatX& q, size_t body_index,
+                           chomp::MatX& dx_dq,  chomp::MatX& cgrad); 
+
+private:
+
+    OpenRAVE::dReal getSDFCollisions( const Sphere & sphere,
+                                      const OpenRAVE::Vector & position, 
+                                      vec3 & gradient );
+    OpenRAVE::dReal getSelfCollisions( size_t body_index,
+                                       const Sphere & current_sphere,
+                                       const OpenRAVE::Vector & position, 
+                                       vec3 & gradient );
 
 
 };
@@ -160,8 +174,7 @@ public:
 
     //a vector containing the collision geometry
     std::vector< Sphere > active_spheres, inactive_spheres;
-
-
+    
     //This holds information pertinent to the collision geometry, and
     //   assists chomp in computing collision gradients.
     SphereCollisionHelper * sphere_collider;
@@ -249,6 +262,9 @@ public:
 
     void coutTrajectory() const;
     void isTrajectoryWithinLimits() const;
+    
+    //bool areAdjacent( OpenRAVE::KinBody::Link * link, size_t second ) const ;
+    bool areAdjacent( int first, int second ) const ;
 
 };
 
@@ -287,10 +303,6 @@ class ORConstraintFactory : public chomp::ConstraintFactory {
 };
 
 
-
-void run_destroy(struct run * r);
-
-
 inline void vectorToMat(const std::vector< OpenRAVE::dReal > & vec,
                              chomp::MatX & mat )
 {
@@ -300,6 +312,34 @@ inline void vectorToMat(const std::vector< OpenRAVE::dReal > & vec,
     for ( size_t i = 0; i < vec.size() ; i ++ ){ mat(i) = vec[i]; }
 }
 
+
+//Simple Utility Functions::
+
+
+inline void mod::getStateAsVector( const chomp::MatX & state,
+                                   std::vector< OpenRAVE::dReal > & vec ){
+
+    vec.resize( n_dof );
+    assert( state.size() == int( n_dof ) );
+    
+    for ( size_t i = 0; i < n_dof; i ++ ){
+        vec[i] = state(i);
+    }
+}
+
+
+inline void mod::getIthStateAsVector( size_t i, 
+                      std::vector< OpenRAVE::dReal > & state )
+{
+    
+    const int width = trajectory.cols();
+    state.resize( width );
+
+    for ( int j = 0; j < width; j ++ ){
+        state[j] = trajectory(i, j );
+    }
+
+}
 
 } /* namespace orchomp */
 

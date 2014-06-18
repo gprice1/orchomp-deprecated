@@ -9,12 +9,12 @@ create/
     nolocal/
     doglobal/
     randomstart/
-    q1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0/
-    doobserve
+    doobserve/
+    q1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
 
 
-iterate
+#iterate
 
-gettraj
+#gettraj
 
-execute
+#execute

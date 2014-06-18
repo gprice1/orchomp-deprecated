@@ -72,7 +72,7 @@ void mod::isTrajectoryWithinLimits() const {
     for( int i = 0; i < trajectory.rows(); i ++ ){
         chomp::MatX test = trajectory.row(i);
         assert( isWithinLimits( test ) );
-        debugStream << "Point " << i << " is within limits" << std::endl;
+        //debugStream << "Point " << i << " is within limits" << std::endl;
     }
 }
 
@@ -82,7 +82,7 @@ void ORConstraintFactory::evaluate(
                 chomp::MatX& H_tot, int step)
 {
 
-    debugStream << "In Evaluate" <<std::endl; 
+    debugStream << "Evaluating Constraints" <<std::endl; 
 
     size_t DoF = xi.cols();
 
@@ -123,12 +123,16 @@ void ORConstraintFactory::evaluate(
         count ++;
     }
     
+
     //bail out if there are no constraints.
     if ( constrained_timesteps.size() == 0 ){
         h_tot.resize( 0,0 );
         H_tot.resize( 0,0 );
+
+        debugStream << "Done Evaluating Constraints" <<std::endl; 
         return;
     }
+
 
     assert( count == (size - 1)/step + 1  );
     
@@ -136,6 +140,8 @@ void ORConstraintFactory::evaluate(
     h_tot.resize( numCons, 1 );
     H_tot.resize( numCons, DoF*constrained_timesteps.size() );
     H_tot.setZero(); 
+   
+    
     
     //since we don't which of the steps is 0, 
     int row_start = 0;
@@ -150,7 +156,7 @@ void ORConstraintFactory::evaluate(
         row_start += height;
 
     }
-    debugStream << "Done Evaluating" <<std::endl; 
+    debugStream << "Done Evaluating Constraints" <<std::endl; 
     
 }
 
@@ -320,165 +326,6 @@ int mod::addfield_fromobsarray(std::ostream& sout, std::istream& sinput)
 
 }
 
-double SphereCollisionHelper::getCost(const chomp::MatX& q,
-                                              size_t body_index,
-                                              chomp::MatX& dx_dq,
-                                              chomp::MatX& cgrad)
-{
-
-    //resize the matrices:
-    //TODO make sure that dx_dq dimensions are correct
-    dx_dq.conservativeResize( nwkspace, ncspace );
-    cgrad.conservativeResize( nwkspace, 1 );
-    
-    //
-    if( body_index == 0 ){
-        std::vector< OpenRAVE::dReal > vec;
-        module->getStateAsVector( q, vec );
-        module->robot->SetActiveDOFValues(vec);
-    }
-
-    //loop through all of the active spheres,
-    //and check their collision status.
-    
-    //extract the current sphere
-    const Sphere & current_sphere = module->active_spheres[ body_index ];
-
-    //get the transformation of the body that the sphere is on.
-    const OpenRAVE::Transform t =
-            current_sphere.link->GetTransform();
-
-    //get the transformation from the body to the sphere.
-    const OpenRAVE::Vector current_pos =
-                           t * OpenRAVE::Vector( current_sphere.pose );
-    
-    vec3 trans( current_pos[0], current_pos[1], current_pos[2] );
-    vec3 gradient;
-    OpenRAVE::dReal dist; 
-    
-    //check all of the sdfs, and get the one with the least cost
-    for ( size_t i = 0; i < module->sdfs.size(); i ++ ){
-        
-        //if the point is not within the field, do not get the cost
-        if ( !module->sdfs[i].grid.isInside( trans )){
-            continue;
-        }
-
-        OpenRAVE::dReal current_dist;
-        vec3 current_gradient; 
-
-        //get the distance and gradient.
-        current_dist = module->sdfs[i].getDist( trans, current_gradient );
-        
-        if (current_dist < dist) {
-            dist = current_dist;
-            gradient = current_gradient;
-        }
-    }
-    
-    //adjust the value of the distance by the radius of the
-    //  sphere to account for the size of the sphere
-    dist -= current_sphere.radius;
-
-    OpenRAVE::dReal cost;
-
-    //compute the cost and gradient function based on the returned
-    //  of get dist, and the epsilon value of the planner
-    //if the cost is negative, invert the gradient, and calculate the
-    //  cost modified by epsilon
-    if (dist < 0) {
-        gradient *= -1;
-        cost = -dist + 0.5*epsilon;
-
-    } else if (dist <= epsilon) {
-
-        const double f = dist - epsilon;
-        gradient *= f*0.5/epsilon;
-        cost = f*f * 0.5/epsilon;
-
-    //if the gradient is far away enough from the object,
-    //  then set the costs and gradient to zero
-    } else {
-        gradient = vec3(0,0,0);
-        cost = 0;
-    }
-
-    //create the structure for the jacobian computation
-    std::vector< OpenRAVE::dReal > jacobian;
-
-    //calculate the jacobians - this is the jacobian of the workspace
-    //  ... i think
-    module->robot->CalculateJacobian( current_sphere.linkindex, v, jacobian);
-    
-    assert( jacobian.size() == ncspace * nwkspace );
-    
-    //copy over data
-    for (  size_t i = 0; i < nwkspace; i ++ ){
-
-        //copy the gradient information
-        cgrad(i) = gradient[i];
-
-        for ( size_t j = 0; j < ncspace; j ++ ){
-
-            //copy the jacobian information
-            dx_dq( i, j ) = jacobian[ i * ncspace + j ];
-        }
-    }
-    
-    //Self Collision Detection and gradient code
-
-    //index over all the other spheres, and check for collisions.
-    const size_t n_active = active_spheres.size();
-    const size_t n_inactive = inactive_spheres.size();
-
-    for ( size_t i=0; i < n_active + n_inactive ; i ++ )
-    {
-        
-        //if the current index would give the current sphere, skip it.
-        if ( i == body_index ) { continue;}
-
-        //extract the current sphere
-        //  if i is less than n_active, get a sphere from active_spheres,
-        //  else, get a sphere from inactive_spheres
-        const Sphere & collision_sphere = (i < n_active ?
-                                           active_spheres[i] :
-                                           inactive_spheres[i-n_active]);
-        
-        //if the spheres are attached to the same link, do not compute
-        //  collisions
-        if (current_sphere.linkindex == collision_sphere.linkindex){
-            continue;
-        }
-        
-        //TODO : is this something that I want?
-        //if the spheres are on adjacent bodies, do not test them for collisions
-        if( current_sphere.body->Adjacent(current_sphere.linkindex,
-                                          collision_sphere.linkindex)){
-            continue;
-        }
-
-        //get the transformation of the body that the sphere is on.
-        const OpenRAVE::Transform link_xform =
-                collision_sphere.link->GetTransform();
-
-        //get the transformation from the body to the sphere.
-        const OpenRAVE::Vector collision_pos =
-                            link_xform * OpenRAVE::Vector( current_sphere.pose );
-        
-        const OpenRAVE::Vector diff = collision_pos - current_pos;
-        const OpenRAVE::dReal dist_sqrd = diff[0]*diff[0] + 
-                                          diff[1]*diff[1] + 
-                                          diff[2]*diff[2] ; 
-
-        // get the distance between the spheres, with padding corresponding to
-        //  epsilon.
-        OpenRAVE::dReal dist = sqrt( dist_sqrd )
-                               - collision_sphere.radius
-                               - current_sphere.radius
-                               - epsilon_self;
-        
-    return cost;
-}
 
 
 
@@ -515,7 +362,7 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     //TODO Compute signed distance field
     
 
-    //TODO setup collision geometry
+    //Setup collision geometry
     getSpheres();
 
     //create the sphere collider to actually 
@@ -526,9 +373,6 @@ int mod::create(std::ostream& sout, std::istream& sinput)
 
 
     //TODO setup momentum stuff ?? maybe ?? 
-
-    //TODO give chomp access to the distance field, and to the
-    //  collision helper
 
     //give chomp a collision helper to 
     //deal with collision and gradients.
@@ -551,7 +395,17 @@ int mod::iterate(std::ostream& sout, std::istream& sinput)
 {
     std::cout << "Iterating" << std::endl;
     
+    //get the arguments
     parseIterate( sout,  sinput);
+
+    //get the lock for the environment
+    OpenRAVE::EnvironmentMutex::scoped_lock lock(environment->GetMutex() );
+
+    if (!robot.get() ){
+        robot = environment->GetRobot( robot_name.c_str() );
+    }
+
+    //solve chomp
     chomper->solve( info.doGlobal, info.doLocal );
 
     std::cout << "Done Iterating" << std::endl;
@@ -575,9 +429,9 @@ int mod::gettraj(std::ostream& sout, std::istream& sinput)
    
 
     debugStream << "Checking Trajectory" << std::endl;
-
-    isTrajectoryWithinLimits();
-    coutTrajectory();
+    //check and or print the trajectory
+    //isTrajectoryWithinLimits();
+    //coutTrajectory();
 
     //setup the openrave trajectory pointer to receive the
     //  found trajectory.
@@ -709,37 +563,6 @@ inline void mod::clampToLimits( chomp::MatX & state ){
 }
 
 
-inline void mod::getStateAsVector( const chomp::MatX & state,
-                                   std::vector< OpenRAVE::dReal > & vec ){
-
-    const int width = trajectory.cols();
-    vec.resize( width );
-
-    for ( int j = 0; j < width; j ++ ){
-        vec[j] = state(j);
-    }
-}
-
-
-inline void mod::getIthStateAsVector( size_t i, 
-                      std::vector< OpenRAVE::dReal > & state )
-{
-    
-    const int width = trajectory.cols();
-    state.resize( width );
-
-    for ( int j = 0; j < width; j ++ ){
-        state[j] = trajectory(i, j );
-    }
-
-    //return state;
-    /*
-    return  std::vector< OpenRAVE::dReal > ( 
-                trajectory.row( i ).data(), 
-                trajectory.row( i ).data() + width );
-    */
-
-}
 
 void mod::getSpheres()
 {
@@ -759,13 +582,15 @@ void mod::getSpheres()
 
         //get the spheres of the body by creating an xml reader to
         //  extract the spheres from the xml files of the objects
-        boost::shared_ptr<orchomp::kdata> data_reader = 
-            boost::dynamic_pointer_cast<orchomp::kdata>
+        boost::shared_ptr<kdata> data_reader = 
+            boost::dynamic_pointer_cast<kdata>
                 (body->GetReadableInterface("orcdchomp"));
          
         //bail if there is no orcdchomp data.
         if (data_reader.get() == NULL ) {
             debugStream << "Failed to get: " << body->GetName() << std::endl;
+            continue;
+
             throw OpenRAVE::openrave_exception(
                 "kinbody does not have a <orcdchomp> tag defined!");
         }
