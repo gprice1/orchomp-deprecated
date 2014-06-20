@@ -207,7 +207,11 @@ void mod::parseDestroy(std::ostream & sout, std::istream& sinput)
 void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
 {
     
-    DistanceField & sdf = sdfs.back();
+    
+    double aabb_padding( -1), cube_extent( -1);
+    OpenRAVE::KinBodyPtr kinbody;
+
+    bool getall = false;
 
     std::string cmd, cache_filename("none passed");
 
@@ -220,24 +224,25 @@ void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
             std::string name;
             sinput >> name;
           
-            if (sdf.kinbody.get()){
+            if (kinbody.get()){
                 throw OpenRAVE::openrave_exception(
                     "Only one kinbody can be passed!");
             }
             
             //get the kinbody
-            sdf.kinbody = environment->GetKinBody(name.c_str());
+            kinbody = environment->GetKinBody(name.c_str());
 
-            if (!sdf.kinbody.get()){
+            if (!kinbody.get()){
                 throw OpenRAVE::openrave_exception(
                     "Could not find kinbody with that name!");
             }
-
         }
-        else if (cmd == "aabb_padding"){
-            sinput >> sdf.aabb_padding;
+        else if ( cmd == "getall" ){
+            getall = true;
+        }else if (cmd == "aabb_padding"){
+            sinput >> aabb_padding;
         }else if (cmd == "cube_extent"){
-            sinput >> sdf.cube_extent;
+            sinput >> cube_extent;
         }else if (cmd == "cache_filename"){
             sinput >> cache_filename;
         }
@@ -251,13 +256,68 @@ void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
                 throw OpenRAVE::openrave_exception("Bad arguments!");
             }
         }
-
    }
+   
+   //if we are not getting all of the kinbodies, and there is a kinbody,
+   //   create a new sdf object.
+   if ( !getall && kinbody.get() ){
+        //create new sdf object, and put it at the back of the sdfs 
+        //  object.
+        sdfs.resize( sdfs.size() + 1 );
+        DistanceField & current_sdf = sdfs.back();
+        if ( aabb_padding >= 0 ){ current_sdf.aabb_padding = aabb_padding; }
+        if ( cube_extent >= 0 ){ current_sdf.cube_extent = cube_extent; }
+        current_sdf.kinbody = kinbody;
  
-   RAVELOG_INFO("Using kinbody %s.\n", kinbody->GetName().c_str());
-   RAVELOG_INFO("Using aabb_padding |%f|.\n", sdf.aabb_padding);
-   RAVELOG_INFO("Using cube_extent |%f|.\n", sdf.cube_extent);
-   RAVELOG_INFO("Using cache_filename |%s|.\n", cache_filename.c_str());
+        RAVELOG_INFO("Using kinbody %s.\n",
+                        current_sdf.kinbody->GetName().c_str());
+        RAVELOG_INFO("Using aabb_padding |%f|.\n",
+                        current_sdf.aabb_padding);
+        RAVELOG_INFO("Using cube_extent |%f|.\n",
+                        current_sdf.cube_extent);
+        RAVELOG_INFO("Using cache_filename |%s|.\n",
+                        cache_filename.c_str());
+        //create the sdf.
+        current_sdf.createField( environment );
+   }
+   else if ( !getall ){
+        throw OpenRAVE::openrave_exception(
+                "Need a kinbody to compute a distance field!");
+   }else if( getall ){
+        std::vector< OpenRAVE::KinBodyPtr > bodies;
+        environment->GetBodies( bodies );
+        for ( size_t i = 0; i < bodies.size (); i ++){
+            
+            //if the body is the robot, skip it because we do not want
+            //  to calculate collisions for our self.
+            if ( bodies[i].get() == robot.get() ){ continue; }
+
+            //create a new sdf object and fill it with the input data.
+            sdfs.resize( sdfs.size() + 1 );
+
+            DistanceField & current_sdf = sdfs.back();
+            if ( aabb_padding >= 0 ){ 
+                current_sdf.aabb_padding = aabb_padding;
+            }
+            if ( cube_extent >= 0 ){ 
+                current_sdf.cube_extent = cube_extent;
+            }
+
+            //
+            current_sdf.kinbody = bodies[i];
+
+            RAVELOG_INFO("Using kinbody %s.\n",
+                          current_sdf.kinbody->GetName().c_str());
+            RAVELOG_INFO("Using aabb_padding |%f|.\n",
+                          current_sdf.aabb_padding);
+            RAVELOG_INFO("Using cube_extent |%f|.\n",
+                          current_sdf.cube_extent);
+            RAVELOG_INFO("Using cache_filename |%s|.\n",
+                                cache_filename.c_str());
+
+            current_sdf.createField( environment );
+        }
+   } 
 
    if( cache_filename != "none passed" ){
        debugStream << "Uploading sdf from file has not been implemented"

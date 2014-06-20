@@ -23,11 +23,8 @@ public:
     //lengths : the height, width, and depth of the entire grid
     double aabb_padding, cube_extent, lengths[3];
 
-    //the transform from the kinbody to the field.
-    OpenRAVE::Transform pose_kinbody;
-
     //the transform from the world origin to the field
-    OpenRAVE::Transform pose_world;
+    OpenRAVE::Vector pose_world;
     
     // The structure that holds the distance field, and the gradients
     typedef DtGrid_t<OpenRAVE::dReal> DtGrid;
@@ -57,7 +54,10 @@ private:
     //  distance field
     void setupGrid(size_t x, size_t y, size_t z );
     
-    inline OpenRAVE::KinBodyPtr createCube( OpenRAVE::EnvironmentBasePtr & env );
+    inline OpenRAVE::KinBodyPtr createCube(
+                                OpenRAVE::EnvironmentBasePtr & env,
+                                OpenRAVE::Vector & pos,
+                                std::string & name);
 
     void binaryFill();
     

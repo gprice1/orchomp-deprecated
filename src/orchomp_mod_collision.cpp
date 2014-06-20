@@ -13,20 +13,24 @@ OpenRAVE::dReal computeCostFromDist( OpenRAVE::dReal dist,
     //  of get dist, and the epsilon value of the planner
     //if the cost is negative, invert the gradient, and calculate the
     //  cost modified by epsilon
+
+
+
+
     if (dist < 0) {
         gradient *= -1;
         return -dist + 0.5*epsilon;
 
-    } if (dist <= epsilon) {
+    } 
+    
+    if (dist <= epsilon) {
 
         const double f = dist - epsilon;
         gradient *= f*0.5/epsilon;
         return f*f * 0.5/epsilon;
-
+    }
     //if the gradient is far away enough from the object,
     //  then set the costs and gradient to zero
-    }         
-    
     gradient = vec3(0,0,0);
     return 0;
 
@@ -34,12 +38,18 @@ OpenRAVE::dReal computeCostFromDist( OpenRAVE::dReal dist,
 
 //TODO : Make this a real function
 bool mod::areAdjacent( int first, int second ) const {
-    
-    //for some totally unknown reason, openRAVE uses this idiotic structure
-    //  to store link values.
-    int value = ( first << 16 ) + (second & 0xFFFF);
-    std::set<int>::iterator it = robot->GetAdjacentLinks().find(value);
 
+    //second must be larger than first, so if that is not the case, swap
+    //  them.
+    if ( first > second ){ std::swap( first, second ); }
+    
+    //for some reason, openRAVE uses this idiotic structure
+    //  to store adjacency values.
+    int value = ( second << 16 ) | (first & 0x0000FFFF);
+    std::set<int>::iterator it = robot->GetAdjacentLinks().find(value);
+    
+    //if the iterator does not hold an item, 
+    //  then the links are not adjacent
     if ( robot->GetAdjacentLinks().end() == it ){
         return false;
     }
@@ -59,15 +69,15 @@ OpenRAVE::dReal SphereCollisionHelper::getSDFCollisions(
     }
 
 
-    debugStream << "Computing SDF Collisions" << std::endl;
+    //debugStream << "Computing SDF Collisions" << std::endl;
     
     vec3 trans( position[0], position[1], position[2] );
-    OpenRAVE::dReal dist = 0.0;
+    OpenRAVE::dReal dist = HUGE_VAL;
 
-    //check all of the sdfs, and get the one with the least cost
+    //check all of the sdfs, and get the one with the least dist 
     for ( size_t i = 0; i < module->sdfs.size(); i ++ ){
         
-        //if the point is not within the field, do not get the cost
+        //if the point is not within the field, do not get the dist
         if ( !module->sdfs[i].grid.isInside( trans )){
             continue;
         }
@@ -88,7 +98,7 @@ OpenRAVE::dReal SphereCollisionHelper::getSDFCollisions(
     //  sphere to account for the size of the sphere
     dist -= sphere.radius;
 
-    debugStream << "Finished SDF Collisions" << std::endl;
+    //debugStream << "Finished SDF Collisions" << std::endl;
     
     return computeCostFromDist( dist, epsilon, gradient );
 
@@ -101,8 +111,6 @@ OpenRAVE::dReal SphereCollisionHelper::getSelfCollisions(
                                        const OpenRAVE::Vector & position, 
                                        vec3 & gradient )
 {
-
-    //debugStream << "Computing Self Collisions" << std::endl;
 
     gradient = vec3(0,0,0);
     OpenRAVE::dReal cost = 0;
@@ -135,20 +143,20 @@ OpenRAVE::dReal SphereCollisionHelper::getSelfCollisions(
             module->areAdjacent( current_sphere.linkindex, 
                                  collision_sphere.linkindex))
         {
-            //debugStream << "Found adjacency" << std::endl;
-            //continue;
+            continue;
         }
 
         //get the transformation of the body that the sphere is on.
         const OpenRAVE::Transform link_xform =
                 collision_sphere.link->GetTransform();
 
-        //get the transformation from the body to the sphere.
+        //get the position of the collision sphere in the world.
         const OpenRAVE::Vector collision_pos =
                   link_xform * OpenRAVE::Vector( collision_sphere.pose );
         
         //calculate the distance between the two centers of the spheres,
-        //  also get the vector from the collision sphere to the current sphere.
+        //  also get the vector from the collision sphere to the
+        //  current sphere.
         const OpenRAVE::Vector diff = (position - collision_pos);
         const OpenRAVE::dReal dist_sqrd = diff[0]*diff[0] + 
                                           diff[1]*diff[1] + 
@@ -176,7 +184,6 @@ OpenRAVE::dReal SphereCollisionHelper::getSelfCollisions(
 
         gradient += gradient_collision;
 
-    
     }
     
     //debugStream << "Finished Self Collisions" << std::endl;
@@ -202,7 +209,15 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
 
         //debugStream << q << std::endl;
         //assert( module->isWithinLimits( q ));
-        module->robot->SetActiveDOFValues(vec);
+        
+        //check the state vector for nan's.
+        for ( int i = 0; i < q.size(); i ++ ){
+            if ( q(i) != q(i) ){
+                debugStream << q <<std::endl;
+                break;
+            }
+        }
+        module->robot->SetActiveDOFValues(vec, 0);
     }
 
     //loop through all of the active spheres,
@@ -215,7 +230,6 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
     //get the transformation of the body that the sphere is on.
     const OpenRAVE::Transform t =
             current_sphere.link->GetTransform();
-    
     
     //get the transformation from the body to the sphere.
     const OpenRAVE::Vector current_pos =
@@ -236,9 +250,8 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
     //create the structure for the jacobian computation
     std::vector< OpenRAVE::dReal > jacobian;
 
-    //calculate the jacobians - this is the jacobian of the workspace
-    //  ... i think
-    module->robot->CalculateJacobian( current_sphere.linkindex,
+    //calculate the jacobian 
+    module->robot->CalculateActiveJacobian( current_sphere.linkindex,
                                       current_pos,
                                       jacobian);
     
@@ -249,7 +262,7 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
     for (  size_t i = 0; i < nwkspace; i ++ ){
 
         //copy the gradient information
-        cgrad(i) = obs_factor*gradient_sdf[i] + obs_factor_self*gradient_self[i];
+        cgrad(i) = gradient_sdf[i] + gradient_self[i];
 
         for ( size_t j = 0; j < ncspace; j ++ ){
 

@@ -88,7 +88,23 @@ void mod::isTrajectoryWithinLimits() const {
     }
 }
 
+int mod::playback(std::ostream& sout, std::istream& sinput)
+{
 
+    
+    trajectory = chomper->xi;
+
+    for ( int i = 0; i < trajectory.rows(); i ++ ){
+
+        std::vector< OpenRAVE::dReal > vec;
+        getStateAsVector( trajectory.row(i), vec );
+        
+        viewspheresVec( trajectory.row(i), vec, 0.05 );
+
+    }
+
+    return 0;
+}
 //constructor that registers all of the commands to the openRave
 //   command line interface.
 mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
@@ -118,9 +134,12 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
       RegisterCommand("destroy",
             boost::bind(&mod::destroy,this,_1,_2),
             "create a chomp run");
-      RegisterCommand("execute",
+       RegisterCommand("execute",
             boost::bind(&mod::execute,this,_1,_2),
             "play a trajectory on a robot");
+       RegisterCommand("playback",
+            boost::bind(&mod::playback,this,_1,_2),
+            "playback a trajectory on a robot");
 
 }
 
@@ -128,8 +147,7 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
  * module commands
  */
 
-// NOTES : viewspheres looks to be fine without editing.
-//    - There may be hidden dependency issues
+//view the collision geometry.
 int mod::viewspheres(std::ostream& sout, std::istream& sinput)
 {
 
@@ -180,6 +198,91 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
     return 0;
 }
 
+//view the collision geometry. .
+int mod::viewspheresVec(const chomp::MatX & q,
+                        const std::vector< OpenRAVE::dReal > & vec, 
+                        double time)
+{
+
+    struct timespec ticks_tic;
+    struct timespec ticks_toc;
+
+    /* start timing voxel grid computation */
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
+
+
+    robot->SetActiveDOFValues( vec );
+
+    if ( !sphere_collider ) { getSpheres() ; }
+    
+    char text_buf[1024];
+    
+    const size_t n_active = active_spheres.size();
+    const size_t n_inactive = inactive_spheres.size();
+
+    std::vector< OpenRAVE::KinBodyPtr > bodies;
+
+    for ( size_t i=0; i < n_active + n_inactive ; i ++ )
+    {
+
+        double cost;
+        chomp::MatX dxdq, cgrad;
+
+        if( sphere_collider ){ 
+            cost = sphere_collider->getCost( q, i, dxdq, cgrad );
+            if ( cost <= 0.5*sphere_collider->epsilon &&
+                 cost <= 0.5*sphere_collider->epsilon_self){
+                continue; }
+        }
+        
+        //extract the current sphere
+        //  if i is less than n_active, get a sphere from active_spheres,
+        //  else, get a sphere from inactive_spheres
+        const Sphere & current_sphere = (i < n_active ?
+                                 active_spheres[i] :
+                                 inactive_spheres[i-n_active]);
+
+        //make a kinbody sphere object to correspond to this sphere.
+        OpenRAVE::KinBodyPtr sbody = 
+                OpenRAVE::RaveCreateKinBody( environment );
+        sprintf( text_buf, "orcdchomp_sphere_%d", int(i));
+        sbody->SetName(text_buf);
+        
+        //set the dimensions and transform of the sphere.
+        std::vector< OpenRAVE::Vector > svec;
+
+        //get the position of the sphere in the world 
+        OpenRAVE::Transform t =  current_sphere.body->GetLink(
+                                 current_sphere.linkname)->GetTransform();
+        OpenRAVE::Vector position = t * OpenRAVE::Vector(current_sphere.pose);
+        
+        //set the radius of the sphere
+        position.w = current_sphere.radius; 
+
+        //give the kinbody the sphere parameters.
+        svec.push_back( position );
+        sbody->InitFromSpheres(svec, true);
+        
+        bodies.push_back( sbody );
+        environment->Add( sbody );
+       
+    }
+    
+    while ( true ){
+      /* stop timing voxel grid computation */
+      clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
+      CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
+      if ( time < CD_OS_TIMESPEC_DOUBLE(&ticks_toc) ){ break ; }
+    }
+
+    for ( size_t i = 0; i < bodies.size() ; i ++ ){
+        environment->Remove( bodies[i] );
+    }
+    
+    return 0;
+}
+
+
 
 
 /* computedistancefield robot Herb2
@@ -194,19 +297,16 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
  //             with the current chomp style of gradients
 int mod::computedistancefield(std::ostream& sout, std::istream& sinput)
 {
-    // Add A distance field to the vector of distance fields.
-    sdfs.resize( sdfs.size() + 1 );
-
+    
+    //TODO uncomment the lock environment line.
     //lock the environment
-    OpenRAVE::EnvironmentMutex::scoped_lock(environment->GetMutex());
+    //OpenRAVE::EnvironmentMutex::scoped_lock(environment->GetMutex());
     
     //Parse the arguments
     parseComputeDistanceField( sout,  sinput);
+    //currently, parse compute does all of the actual work for this function.
+    //  That seems peculiar.
     
-    //extract the distance field to be created.
-    DistanceField & sdf = sdfs.back();
-    
-    sdf.createField( environment );
 
     return 0;
 }
@@ -242,7 +342,10 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     //after the arguments have been collected, pass them to chomp
     createInitialTrajectory();
     
-    //create a padded upper and lower joint limits vectors.
+    //create a padded upper and lower joint limits vectors. These will be
+    //  Used for constraining the trajectory to the joint limits.
+    //  Since sometimes, chomp allows constraints to be minutely off,
+    //  this will prevent that from happening.
     paddedUpperJointLimits.resize( upperJointLimits.size() );
     paddedLowerJointLimits.resize( lowerJointLimits.size() );
     for ( size_t i = 0; i < upperJointLimits.size(); i ++ ){
@@ -277,13 +380,11 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     //TODO Compute signed distance field
     
 
-    //Setup collision geometry
+    //Setup the collision geometry
     getSpheres();
 
     //create the sphere collider to actually 
-    //  use the sphere information
-    //TODO make sure that nbodies is correct
-
+    //  use the sphere information, and pass in its parameters.
     if ( !info.noCollider ){
         sphere_collider = new SphereCollisionHelper(
                           n_dof, 3, active_spheres.size(), this);
@@ -302,7 +403,9 @@ int mod::create(std::ostream& sout, std::istream& sinput)
                                 sphere_collider, info.gamma);
         chomper->ghelper = collisionHelper;
     }
-
+    
+    //if we want a debug observer, then give chomp the
+    //  link to the observer.
     if ( info.doObserve ){
         chomper->observer = &observer;
     }
@@ -455,12 +558,16 @@ int mod::destroy(std::ostream& sout, std::istream& sinput){
 
 
 //takes the two endpoints and fills the trajectory matrix by
-//  linearly interpolating betweeen the two.
+//  linearly interpolating between the two.
 inline void mod::createInitialTrajectory()
 {
+
+    //make sure that the number of points is not zero
     assert( info.n != 0 );
+    //make sure that the start and endpoint are the same size
     assert( q0.size() == q1.size() );
 
+    //resize the trajectory to hold the current endpoint
     trajectory.resize(info.n, q0.size() );
 
     //fill the trajectory matrix 
@@ -468,6 +575,10 @@ inline void mod::createInitialTrajectory()
         trajectory.row(i) = (i+1)*(q1-q0)/(info.n+1) + q0;
 
         chomp::MatX test = trajectory.row(i);
+
+        //make sure that all of the points are within the joint limits
+        //  this is unnecessary, but nice for now.
+        //  TODO remove this.
         assert( isWithinLimits( test ));
     }
 }
@@ -525,6 +636,14 @@ void mod::getSpheres()
             sphere.body = body.get();
             /* what robot link is this sphere attached to? */
             if (body.get() == robot.get()){
+                
+                //TODO THIS IS AN OUTRAGEOUS HACK PLEASE make it not necessary
+                if ( sphere.linkname == "/right/wam0" ){
+                    sphere.linkname = "/right/wam2";
+                }else if ( sphere.linkname == "/left/wam0" ){
+                    sphere.linkname = "/left/wam2";
+                }
+
                 sphere.link = robot->GetLink(sphere.linkname).get();
             }
             //the sphere is attached to a grabbed kinbody

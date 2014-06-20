@@ -43,6 +43,17 @@
 
 namespace chomp {
 
+  bool isnan( MatX & mat ){
+      for ( int i = 0; i < mat.rows() ; i ++ ){
+          for ( int j = 0; j < mat.cols(); j ++ ){
+              if ( mat(i,j) != mat(i,j) ){
+                  return true;
+              }
+          }
+      }
+      return false;
+  }
+
   const char* eventTypeString(int eventtype) {
     switch (eventtype) {
     case CHOMP_INIT: return "CHOMP_INIT";
@@ -127,24 +138,64 @@ namespace chomp {
           // workspace vel = dx_dq * cspace_vel
           wkspace_vel = dx_dq * cspace_vel;
 
+          //this prevents nans from propagating.
+          if (wkspace_vel.isZero()){
+              continue;
+          }
+          //assert( !isnan( wkspace_vel ) );
+
+
           // workspace accel = dx_dq * cspace_accel
           wkspace_accel = dx_dq * cspace_accel;
-
+          
+          //std::cout << wkspace_vel <<std::endl;
           float wv_norm = wkspace_vel.norm();
           wkspace_vel /= wv_norm;
+
+          //std::cout << "Norm: "<< wkspace_vel.norm() << std::endl;
+
+          //std::cout << wkspace_vel << std::endl;
+          //assert( !(wkspace_vel.norm() != wkspace_vel.norm()) );
+          //assert( !isnan( wkspace_vel ) );
 
           // add to total
           double scl = wv_norm * gamma / c.inv_dt;
 
           total += cost * scl;
-
-          P = MatX::Identity(chelper->nwkspace, chelper->nwkspace) - (wkspace_vel * wkspace_vel.transpose());
+          
+          //MatX tempM1 = wkspace_vel * wkspace_vel.transpose();
+          //assert( !isnan( tempM1 ));
+          
+          P = MatX::Identity(chelper->nwkspace, chelper->nwkspace)
+              - (wkspace_vel * wkspace_vel.transpose());
+          //assert( !isnan( P ));
 
           K = (P * wkspace_accel) / (wv_norm * wv_norm);
-
+         
+          //code for checking nans in the gradient terms
+          /*
+          MatX temp0 = scl * dx_dq.transpose();
+          assert( !isnan( temp0 ) );
+          MatX temp1 = P * cgrad;
+          assert( !isnan( temp1 ) );
+          MatX temp2 = cost*K;
+          assert( !isnan( temp2 ) );
+          MatX temp3 = temp0 * ( temp1 - temp2 );
+          assert( !isnan( temp3 ) );
+          
+          g.row(t) += temp3.transpose();
+          */
           //          scalar * M-by-W        * (WxW * Wx1   - scalar * Wx1)
           g.row(t) += (scl * dx_dq.transpose() * (P * cgrad - cost * K)).transpose();
-
+         
+          /*
+          for ( int i  = 0; i < g.cols() ; i ++ ){
+              //this tests for nans
+              if ( g(t, i) != g(t, i) ){
+                  std::cout << "There are nans in g" <<std::endl;
+              }
+          }
+          */
         }
         
       }

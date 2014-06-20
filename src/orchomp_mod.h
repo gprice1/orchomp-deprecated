@@ -173,6 +173,8 @@ public:
     //these are useful for interfacing with the robot.
     OpenRAVE::RobotBasePtr robot;
     std::string robot_name;
+
+
     OpenRAVE::KinBodyPtr kinbody;
     std::vector< int > active_indices;
     size_t n_dof;
@@ -223,6 +225,13 @@ public:
    
     //execute a construsted trajectory
     int execute(std::ostream & sout, std::istream& sinput);
+    
+    //execute a construsted trajectory
+    int playback(std::ostream & sout, std::istream& sinput);
+   
+    int viewspheresVec( const chomp::MatX & q,
+                        const std::vector< OpenRAVE::dReal > & vec,
+                        double time);
  
     //constructor that registers all of the commands to the openRave
     //   command line interface.
@@ -251,8 +260,6 @@ public:
                                    std::istream& sinput);
     void parsePoint( std::istream & sinput, chomp::MatX & point);
     void parseExecute( std::ostream & sout , std::istream & sinput );
-
-    void viewMovement();
 
     // A small helper function for creating a straight line trajectory between
     //  two endpoints:
