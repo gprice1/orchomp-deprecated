@@ -41,7 +41,19 @@
 namespace orchomp
 {
 
+bool mod::isWithinPaddedLimits( const chomp::MatX & mat ) const{
+    assert( upperJointLimits.size() > 0 );
+    assert( lowerJointLimits.size() > 0 );
+    assert( mat.cols() > 0 );
 
+    for ( int i = 0; i < mat.cols(); i ++ ){
+        if ( mat(i) > paddedUpperJointLimits[i] ||
+             mat(i) < paddedLowerJointLimits[i] ){
+            return false;
+        }
+    }
+    return true;
+}
 bool mod::isWithinLimits( const chomp::MatX & mat ) const{
     assert( upperJointLimits.size() > 0 );
     assert( lowerJointLimits.size() > 0 );
@@ -76,124 +88,6 @@ void mod::isTrajectoryWithinLimits() const {
     }
 }
 
-void ORConstraintFactory::evaluate(
-                const std::vector<chomp::Constraint*>& constraints, 
-                const chomp::MatX& xi, chomp::MatX& h_tot,
-                chomp::MatX& H_tot, int step)
-{
-
-    debugStream << "Evaluating Constraints" <<std::endl; 
-
-    size_t DoF = xi.cols();
-
-    assert(size_t(xi.rows()) == constraints.size());
-
-    //the number of rows in the complete matrices.
-    size_t numCons = 0;
-    
-    //the number of total constraints,
-    // and the number of timesteps we are actually looking at.
-    const size_t size = constraints.size();
-    size_t count = 0;
-    
-    std::vector< chomp::MatX > H_vec, h_vec;
-
-    //annoyingly, with the use of the step, this is the
-    //  correct size of the vectors.
-    H_vec.resize( (size - 1)/step + 1  );
-    h_vec.resize( (size - 1)/step + 1  );
-    
-    //keeps track of the timestep, while i keeps track of the
-    //  vector index.
-    std::vector <size_t> constrained_timesteps;
-    
-    //get all of the jacobians and cost vectors
-    for (size_t t=0, i=0; t< size; t+=step, i++) {
-        chomp::Constraint* c = constraints[t];
-        c->evaluateConstraints( xi.row(t), h_vec[i], H_vec[i] );
-        numCons += h_vec[i].rows();
-        
-        if ( c->numOutputs() != 0 ){
-            assert( h_vec[i].rows() == h_vec[i].rows() );
-            assert( h_vec[i].cols() == 1);
-
-            constrained_timesteps.push_back( i );
-        }
-
-        count ++;
-    }
-    
-
-    //bail out if there are no constraints.
-    if ( constrained_timesteps.size() == 0 ){
-        h_tot.resize( 0,0 );
-        H_tot.resize( 0,0 );
-
-        debugStream << "Done Evaluating Constraints" <<std::endl; 
-        return;
-    }
-
-
-    assert( count == (size - 1)/step + 1  );
-    
-    // make h
-    h_tot.resize( numCons, 1 );
-    H_tot.resize( numCons, DoF*constrained_timesteps.size() );
-    H_tot.setZero(); 
-   
-    
-    
-    //since we don't which of the steps is 0, 
-    int row_start = 0;
-    for (size_t i=0; i < constrained_timesteps.size(); i ++) {
-        
-        const size_t index = constrained_timesteps[i];
-        const int height = h_vec[index].rows();
-        
-        h_tot.block(row_start, 0, height, 1 ) = h_vec[index];
-        H_tot.block(row_start, i*DoF, height, DoF) = H_vec[index];
-
-        row_start += height;
-
-    }
-    debugStream << "Done Evaluating Constraints" <<std::endl; 
-    
-}
-
-void ORConstraint::evaluateConstraints(const chomp::MatX& qt, 
-                                             chomp::MatX& h, 
-                                             chomp::MatX& H){
-    //jacobain columns must be equal to n_dof
-    // the rows must be equal to the number of constraints
-    int k = module->n_dof;
-
-    if ( h.cols() != 1 || h.rows() != k ){
-        h.resize( k, 1 );
-    }
-    if ( H.cols() != k || H.rows() != k ){
-        H.resize( k, k );
-    }
-    H.setZero();
-    
-    int dims = 0;
-    for ( int i = 0; i < qt.cols(); i ++ ){
-        if ( qt(i) > module->upperJointLimits[i] ){
-            h(dims) = qt(i) - module->upperJointLimits[i];
-            H( i, dims ) = 1;
-            dims++;
-        }else if ( qt(i) < module->lowerJointLimits[i] ){
-            h(dims) = qt(i) - module->lowerJointLimits[i];
-            H( i, dims ) = 1;
-            dims++;
-        }
-    }
-    
-    n_outputs = dims;
-    if (dims != k){ 
-        H.conservativeResize( k , dims );
-        h.conservativeResize( dims, 1 );
-    }
-}
 
 //constructor that registers all of the commands to the openRave
 //   command line interface.
@@ -344,12 +238,33 @@ int mod::create(std::ostream& sout, std::istream& sinput)
 
     parseCreate( sout,  sinput);
     
-    clampToLimits(q0);
-    clampToLimits(q1);
+
     //after the arguments have been collected, pass them to chomp
     createInitialTrajectory();
     
-    factory = new ORConstraintFactory( this );
+    //create a padded upper and lower joint limits vectors.
+    paddedUpperJointLimits.resize( upperJointLimits.size() );
+    paddedLowerJointLimits.resize( lowerJointLimits.size() );
+    for ( size_t i = 0; i < upperJointLimits.size(); i ++ ){
+        OpenRAVE::dReal interval = upperJointLimits[i] - lowerJointLimits[i];
+        interval *= info.jointPadding;
+
+        //fill the padded joint limits
+        paddedUpperJointLimits[i] = upperJointLimits[i] - interval;
+        paddedLowerJointLimits[i] = lowerJointLimits[i] + interval;
+    }
+
+    //TODO remove the clamp to limits thing.
+    clampToLimits(q0);
+    clampToLimits(q1);
+
+    assert( isWithinPaddedLimits( q0 ) );
+    assert( isWithinPaddedLimits( q1 ) );
+
+
+    if ( !info.noFactory ){
+        factory = new ORConstraintFactory( this );
+    }
     //now that we have a trajectory, make a chomp object
     chomper = new chomp::Chomp( factory, trajectory,
                                 q0, q1, info.n_max, 
@@ -368,9 +283,15 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     //create the sphere collider to actually 
     //  use the sphere information
     //TODO make sure that nbodies is correct
-    sphere_collider = new SphereCollisionHelper(
-                          n_dof, 3, active_spheres.size(), this);
 
+    if ( !info.noCollider ){
+        sphere_collider = new SphereCollisionHelper(
+                          n_dof, 3, active_spheres.size(), this);
+        sphere_collider->epsilon = info.epsilon;
+        sphere_collider->epsilon_self = info.epsilon_self;
+        sphere_collider->obs_factor = info.obs_factor;
+        sphere_collider->obs_factor_self = info.obs_factor_self;
+    }
 
     //TODO setup momentum stuff ?? maybe ?? 
 
@@ -378,7 +299,7 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     //deal with collision and gradients.
     if (sphere_collider){
         collisionHelper = new chomp::ChompCollGradHelper(
-                                sphere_collider,info.gamma);
+                                sphere_collider, info.gamma);
         chomper->ghelper = collisionHelper;
     }
 
@@ -553,11 +474,11 @@ inline void mod::createInitialTrajectory()
 
 inline void mod::clampToLimits( chomp::MatX & state ){
     for ( int i = 0; i < state.cols() ; i ++ ){
-        if ( state(i) > upperJointLimits[i] ){
-            state(i) = upperJointLimits[i];
+        if ( state(i) > paddedUpperJointLimits[i] ){
+            state(i) = paddedUpperJointLimits[i];
         }
-        else if ( state(i) < lowerJointLimits[i] ){
-            state(i) = lowerJointLimits[i];
+        else if ( state(i) < paddedLowerJointLimits[i] ){
+            state(i) = paddedLowerJointLimits[i];
         }
     }
 }

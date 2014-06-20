@@ -121,12 +121,16 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
                 throw OpenRAVE::openrave_exception(
                         "Robot name not valid");
          }
+      }else if (cmd =="obstol") {
+            sinput >> info.obstol;
       }else if (cmd =="n") {
             sinput >> info.n;
       }else if (cmd =="n_max"){
             sinput >> info.n_max;
       }else if (cmd =="alpha") {
             sinput >> info.alpha;
+      }else if ( cmd == "gamma"){
+          sinput >> info.gamma;
       }else if (cmd =="max_global_iter") {
             sinput >> info.max_global_iter;
       }else if (cmd =="max_local_iter") {
@@ -141,12 +145,30 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
       }else if ( cmd == "randomend" ){
             getRandomState( q1 );
             debugStream << "\t\tRandom end: " << q1 << std::endl;
-      }
+     }else if (cmd == "epsilon"){
+          sinput >> info.epsilon;
+     }else if (cmd == "epsilon_self"){
+          sinput >> info.epsilon_self;
+     }else if (cmd == "obs_factor"){
+          sinput >> info.obs_factor;
+     }else if (cmd == "obs_factor_self"){
+          sinput >> info.obs_factor_self;
+     }else if (cmd == "jointpadding"){
+          sinput >> info.jointPadding;
+     }
+
     
       else if ( cmd == "dolocal"  ){ info.doLocal   = true;  }
       else if ( cmd == "nolocal"  ){ info.doLocal   = false; }
       else if ( cmd == "doglobal" ){ info.doGlobal  = true;  } 
       else if ( cmd == "doobserve"){ info.doObserve = true;  }
+      else if ( cmd == "nofactory"){ info.noFactory = true;  }
+      else if ( cmd == "nocollider"){ info.noCollider = true;  }
+      else if ( cmd == "noselfcollision"){ info.noSelfCollision = true;  }
+      else if ( cmd == "noenvironmentalcollision"){
+            info.noEnvironmentalCollision = true; 
+      }
+
       //else if ( cmd =="noglobal") { info.doGlobal == false; }
 
       //error case

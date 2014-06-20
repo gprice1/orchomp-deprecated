@@ -16,6 +16,7 @@ add_library(orchomp SHARED
     src/orchomp_mod_parse.cpp
     src/orchomp_distancefield.cpp
     src/orchomp_mod_collision.cpp
+    src/orchomp_constraint.cpp
 
     src/utils/os.c
     src/utils/util_shparse.c

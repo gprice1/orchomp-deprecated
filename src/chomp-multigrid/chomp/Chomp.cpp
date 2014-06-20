@@ -150,7 +150,7 @@ namespace chomp {
       }
 
     }
-
+    std::cout << "Gradient Total: " << total << std::endl;
     return total;
 
   }
@@ -333,7 +333,7 @@ namespace chomp {
   // updates chomp equation until convergence at the current level
   
   void Chomp::runChomp(bool global, bool local) {
-
+    
     prepareChompIter();
     double lastObjective = evaluateObjective();
     //std::cout << "initial objective is " << lastObjective << "\n";
@@ -548,12 +548,14 @@ namespace chomp {
     } else {
 
       P = H_which.transpose();
-
+      
+      std::cout << "CHeckpoint A" << std::endl;
       // TODO: see if we can make this more efficient?
       for (int i=0; i<P.cols(); i++){
         skylineCholSolveMulti(L_which, P.col(i));
       }
 
+      std::cout << "CHeckpoint B" << std::endl;
       debug << "H = \n" << H << "\n";
       debug << "P = \n" << P << "\n";
   
@@ -579,8 +581,11 @@ namespace chomp {
       debug << "g_flat = \n" << g_flat << "\n";
 
       W = (MatX::Identity(newsize,newsize) - H_which.transpose() * Y)*g_flat;
+      
+      std::cout << "CHeckpoint C" << std::endl;
       skylineCholSolveMulti(L_which, W);
 
+      std::cout << "CHeckpoint D" << std::endl;
       Y = cholSolver.solve(h_which);
 
       debug_assert( h_which.isApprox(HP*Y) );

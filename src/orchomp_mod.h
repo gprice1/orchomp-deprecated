@@ -32,10 +32,9 @@
 #define _ORCHOMP_MOD_H_
 
 #include "chomp-multigrid/chomp/Chomp.h"
-#include "chomp-multigrid/chomp/Constraint.h"
-#include "chomp-multigrid/chomp/ConstraintFactory.h"
 #include "orchomp_distancefield.h"
-
+#include "orchomp_constraint.h"
+#include "orchomp_kdata.h"
 #include <openrave/openrave.h>
 #include <openrave/planningutils.h>
 
@@ -54,7 +53,6 @@ extern "C" {
 namespace orchomp
 {
 class mod;
-class Sphere;
 
 //this is a structure used to hold and initialize values
 //  for an eventual call to chomp.
@@ -67,7 +65,8 @@ public:
     // t_total: the total amount of timesteps that
     //          N+1 timesteps will take            
     // gamma: how much the gradient term counts for.
-    double alpha, obstol, t_total, gamma;
+    double alpha, obstol, t_total, gamma, epsilon, epsilon_self, obs_factor,
+           obs_factor_self, jointPadding;
 
     //n: the initial size of the trajectory,
     //n_max: the final size,
@@ -77,14 +76,19 @@ public:
 
     //whether or not global and/or local chomp should
     //  be done.
-    bool doGlobal, doLocal, doObserve;
+    bool doGlobal, doLocal, doObserve, noFactory, noCollider, 
+         noSelfCollision, noEnvironmentalCollision;
 
     //a basic constructor to initialize values
     ChompInfo() :
         alpha(0.1), obstol(0.01), t_total(1.0), gamma(0.1),
+        epsilon( 0.1 ), epsilon_self( 0.01 ), obs_factor( 200 ),
+        obs_factor_self( 5 ), jointPadding( 0.05 ),
         n(0), n_max(0), max_global_iter( size_t(-1) ), 
         max_local_iter( size_t(-1)), doGlobal( true ),
-        doLocal( false), doObserve( false )
+        doLocal( false), doObserve( false ), noFactory (false),
+        noCollider( false ), noSelfCollision( false ),
+        noEnvironmentalCollision( false )
         {}
 };
 
@@ -115,7 +119,8 @@ public:
     SphereCollisionHelper( size_t ncspace, size_t nwkspace, size_t nbodies, 
                           mod * module) :
             ChompCollisionHelper( ncspace, nwkspace, nbodies ), module(module),
-            epsilon( 0.2 ), epsilon_self( 0.2 )
+            epsilon( 0.1 ), obs_factor(200.0), epsilon_self( 0.01 ), 
+            obs_factor_self( 5.0 )
     {
     }
 
@@ -181,9 +186,9 @@ public:
     chomp::ChompCollGradHelper * collisionHelper;
 
     //the upper and lower limits for the joints.
-    std::vector< OpenRAVE::dReal > upperJointLimits,
-                                  lowerJointLimits;
-
+    std::vector< OpenRAVE::dReal > upperJointLimits, lowerJointLimits,
+                        paddedUpperJointLimits, paddedLowerJointLimits;
+                                    
     //This vector holds all of the sdf's.
     std::vector< DistanceField > sdfs;
 
@@ -246,61 +251,45 @@ public:
                                    std::istream& sinput);
     void parsePoint( std::istream & sinput, chomp::MatX & point);
     void parseExecute( std::ostream & sout , std::istream & sinput );
+
+    void viewMovement();
+
     // A small helper function for creating a straight line trajectory between
     //  two endpoints:
     inline void createInitialTrajectory();
-    
+    //get the ith state in the trajectory matrix and turn it into an openrave
+    //  state vector.
     inline void getIthStateAsVector( size_t i,
                 std::vector< OpenRAVE::dReal > & state  );
+    //get a state matrix, and turn it into an openrave state vector
     inline void getStateAsVector( const chomp::MatX & state,
                 std::vector< OpenRAVE::dReal > & vec  );
+    //get a random state that is within the robot's joint limits
     inline void getRandomState( chomp::MatX & vec );
+    //take a state matrix, and if any of the values exceed the joint limits,
+    //  then clamp that value to the nearest joint limit
     inline void clampToLimits( chomp::MatX & state);
-    
-    void getSpheres();
+    //returns true if the given state matrix is within the joint limits
     bool isWithinLimits( const chomp::MatX & mat ) const;
+    bool isWithinPaddedLimits( const chomp::MatX & mat ) const;
+    //Take a state matrix, and set the robot's active DOF values
+    inline void setActiveDOFValues( const chomp::MatX & qt );
+    
+    //Get the collision geometry from the XML files
+    void getSpheres();
 
+    //print out the trajectory 
     void coutTrajectory() const;
+    //Checks to see if all of the points in the trajectory are within the
+    //  joint limits. Print out the status of each point.
     void isTrajectoryWithinLimits() const;
     
-    //bool areAdjacent( OpenRAVE::KinBody::Link * link, size_t second ) const ;
+    //Returns true if two joints are adjacent
     bool areAdjacent( int first, int second ) const ;
 
-};
-
-
-class ORConstraint : public chomp::Constraint {
-  public:
-    mod * module;
-    int n_outputs;
-
-    ORConstraint( mod * module) : module( module ), n_outputs(1) {}
-    virtual void evaluateConstraints(const chomp::MatX& qt, 
-                                     chomp::MatX& h, 
-                                     chomp::MatX& H);
-    virtual size_t numOutputs(){
-        return n_outputs;
-    }
-};
-
-
-//this does nothing right now.
-class ORConstraintFactory : public chomp::ConstraintFactory {
-  public: 
-
-    mod * module;
-
-    virtual chomp::Constraint* getConstraint(size_t t, size_t total){
-        return new ORConstraint( module );
-    }
-
-    ORConstraintFactory( mod * module ) : module( module ){}
-
-    virtual void evaluate( const std::vector<chomp::Constraint*>& constraints, 
-                   const chomp::MatX& xi, chomp::MatX& h_tot,
-                   chomp::MatX& H_tot, int step);
 
 };
+
 
 
 inline void vectorToMat(const std::vector< OpenRAVE::dReal > & vec,
@@ -311,9 +300,6 @@ inline void vectorToMat(const std::vector< OpenRAVE::dReal > & vec,
 
     for ( size_t i = 0; i < vec.size() ; i ++ ){ mat(i) = vec[i]; }
 }
-
-
-//Simple Utility Functions::
 
 
 inline void mod::getStateAsVector( const chomp::MatX & state,
@@ -340,6 +326,15 @@ inline void mod::getIthStateAsVector( size_t i,
     }
 
 }
+
+inline void mod::setActiveDOFValues( const chomp::MatX & qt ){
+
+    std::vector< OpenRAVE::dReal > vec;
+    getStateAsVector( qt, vec );
+
+    robot->SetActiveDOFValues( vec );
+}
+
 
 } /* namespace orchomp */
 

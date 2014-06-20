@@ -27,6 +27,10 @@
  *  - openrave/openrave.h
  * */
 
+#ifndef _ORCHOMP_KDATA_H_
+#define _ORCHOMP_KDATA_H_
+
+
 namespace orchomp
 {
 
@@ -84,3 +88,7 @@ public:
 };
 
 } /* namespace orcdchomp */
+
+
+
+#endif
