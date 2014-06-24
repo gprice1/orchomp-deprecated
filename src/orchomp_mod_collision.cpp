@@ -107,6 +107,119 @@ OpenRAVE::KinBodyPtr SphereCollisionHelper::createCube( double cost,
 
 }
 
+OpenRAVE::KinBodyPtr SphereCollisionHelper::createCube( 
+                                 const OpenRAVE::Vector & color,
+                                 double size,
+                                 OpenRAVE::EnvironmentBasePtr & env,
+                                 const OpenRAVE::Vector & pos
+                                 )
+{
+
+    //create a cube to be used for collision detection in the world.
+    //  create an object and name that object 'cube'
+    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( env);
+    
+    std::stringstream ss;
+    ss   << pos[0] << "_"
+         << pos[1] << "_"
+         << pos[2] ; 
+
+    const std::string name = ss.str();
+
+    if( env->GetKinBody( name.c_str() ).get() ){return cube; }
+    cube->SetName( name.c_str() );
+
+    //set the dimensions of the cube object
+    std::vector< OpenRAVE::AABB > vaabbs(1);
+
+    /* extents = half side lengths */
+    vaabbs[0].extents = OpenRAVE::Vector( size, size, size );
+    vaabbs[0].pos = pos;
+    cube->InitFromBoxes(vaabbs, true);
+    
+    //add the cube to the environment
+    env->Add( cube );
+
+    cube->GetLinks()[0]->GetGeometries()[0]->SetAmbientColor( color );
+    cube->GetLinks()[0]->GetGeometries()[0]->SetDiffuseColor( color );
+
+    return cube;
+
+}
+
+void SphereCollisionHelper::visualizeSDFSlice( size_t sdf_index,
+                                               size_t axis,
+                                               size_t slice_index,
+                                               double time)
+{
+    assert( axis < 3 && axis >=0 );
+    assert( module->sdfs.size() > sdf_index && sdf_index >= 0 );
+    
+    const DistanceField & df = module->sdfs[ sdf_index ];
+
+    size_t bounds[6] = { 0,0,0, df.grid.nx(), df.grid.ny(), df.grid.nz() };
+    bounds[ axis ] = slice_index;
+    bounds[axis + 3] = slice_index + 1;
+
+    const double min = df.grid.minDist();
+    const double max = df.grid.maxDist();
+    
+    const double cutoff1 = (max - min) / 3;
+    const double cutoff2 = cutoff1 * 2;
+
+    bounds[3 + slice_index] = 0;
+    
+    std::vector< OpenRAVE::KinBodyPtr > cubes;
+
+    for( size_t i = bounds[0]; i < bounds[3]; i ++ ){
+    for( size_t j = bounds[1]; j < bounds[4]; j ++ ){
+    for( size_t k = bounds[2]; k < bounds[5]; k ++ ){
+
+        double dist = df.grid( i, j, k ) - min;
+        vec3 center = df.grid.cellCenter( i, j, k );
+
+        OpenRAVE::Vector color, pos( center[0], center[1], center[2] ) ;
+        
+        if ( dist < cutoff1 ){
+            color = OpenRAVE::Vector( 0, 0, dist/cutoff1 );
+        } else if ( dist < cutoff2 ){
+            double val = (dist - cutoff1)/cutoff1;
+            color = OpenRAVE::Vector( 0, val, 1 - val  );
+        }else {
+            double val = (dist - cutoff2)/cutoff1;
+            color = OpenRAVE::Vector( val, 1 - val , 0 );
+        }
+        
+        cubes.resize( cubes.size() + 1 );
+        
+        cubes.back() = createCube( color, df.cube_extent,
+                                   module->environment, pos );
+
+    }
+    }
+    }
+
+    //wait for given amount of time
+    struct timespec ticks_tic;
+    struct timespec ticks_toc;
+
+    /* start timing voxel grid computation */
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
+
+
+    while ( true ){
+      /* stop timing voxel grid computation */
+      clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
+      CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
+      if ( time < CD_OS_TIMESPEC_DOUBLE(&ticks_toc) ){ break ; }
+    }
+
+    for ( size_t i = 0; i < cubes.size() ; i ++ ){
+        module->environment->Remove( cubes[i] );
+    }
+}
+
+
 OpenRAVE::dReal SphereCollisionHelper::getSDFCollisions(
                                       const Sphere & sphere,
                                       const OpenRAVE::Vector & position, 
@@ -331,7 +444,9 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
     
     //make sure that the size of the jacobian is the correct size
     assert( jacobian.size() == ncspace * nwkspace );
-     
+    
+    const double total_factor = obs_factor + obs_factor_self;
+
     //copy over data
     for (  size_t i = 0; i < nwkspace; i ++ ){
 
@@ -339,7 +454,7 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
         if ( cost_self > 0.0000001 ){
 
             cgrad(i) = obs_factor*gradient_sdf[i]
-                 + obs_factor_self*gradient_self[i] / cost_self;
+                     + obs_factor_self*gradient_self[i] / cost_self;
         }else {
             cgrad(i) = obs_factor*gradient_sdf[i];
         }
@@ -349,10 +464,13 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
             //copy the jacobian information
 
             if (cost_self > 0.0000001 ){
-                dx_dq( i, j ) = jacobian[ i * ncspace + j ] 
-                            - otherJacobian[ i * ncspace + j ] / cost_self;
+                dx_dq( i, j ) = (jacobian[ i * ncspace + j ]
+                                  * total_factor )
+                                - ( otherJacobian[ i * ncspace + j ]
+                                    / cost_self * obs_factor_self );
+                            
             }else {
-                dx_dq( i, j ) = jacobian[ i * ncspace + j ] ;
+                dx_dq( i, j ) = jacobian[ i * ncspace + j ] * obs_factor;
             }
         }
     }

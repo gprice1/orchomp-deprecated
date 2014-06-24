@@ -142,6 +142,14 @@ public:
                                      OpenRAVE::EnvironmentBasePtr & env,
                                     const OpenRAVE::Vector & pos
                                          );
+    OpenRAVE::KinBodyPtr createCube( 
+                                 const OpenRAVE::Vector & color,
+                                 double size,
+                                 OpenRAVE::EnvironmentBasePtr & env,
+                                 const OpenRAVE::Vector & pos
+                                 );
+    void visualizeSDFSlice( size_t sdf_index, size_t axis,
+                            size_t slice_index, double time);
 
     // q - the current configuration
     // body_index - the index of the body to get the gradient, cost and jacobains
@@ -181,7 +189,7 @@ public:
 
     //the trajectory, start, and endpoint.
     chomp::MatX trajectory, q0, q1;
-    chomp::ConstraintFactory * factory;
+    ORConstraintFactory * factory;
    
     //This holds basic info relating to an individual 
     //   run of chomp
@@ -194,6 +202,7 @@ public:
     OpenRAVE::RobotBasePtr robot;
     std::string robot_name;
 
+    OpenRAVE::RobotBase::ManipulatorPtr active_manip;
 
     OpenRAVE::KinBodyPtr kinbody;
     std::vector< int > active_indices;
@@ -213,6 +222,8 @@ public:
                                     
     //This vector holds all of the sdf's.
     std::vector< DistanceField > sdfs;
+    
+    std::vector< ORTSRConstraint * > tsrs;
 
     //this is a pointer to the chomp class that will pull most of the
     //   weight.
@@ -227,6 +238,8 @@ public:
     //compute the distance field for use in collision detection, and
     //   descending the gradient out of collision
     int computedistancefield(std::ostream & sout, std::istream& sinput);
+    
+    int visualizeslice(std::ostream& sout, std::istream& sinput);
 
     // NOTE : Find out what this is supposed to do
     int addfield_fromobsarray(std::ostream & sout, std::istream& sinput);
@@ -248,7 +261,12 @@ public:
     
     //execute a construsted trajectory
     int playback(std::ostream & sout, std::istream& sinput);
-   
+    
+    //add a tsr to the factory
+    int addtsr(std::ostream & sout, std::istream& sinput);
+    
+    int viewtsr(std::ostream & sout, std::istream& sinput);
+    
     int viewspheresVec( const chomp::MatX & q,
                         const std::vector< OpenRAVE::dReal > & vec,
                         double time);
@@ -363,7 +381,47 @@ inline void mod::setActiveDOFValues( const chomp::MatX & qt ){
 }
 
 
+
+OpenRAVE::KinBodyPtr createBox( const OpenRAVE::Vector & pos,
+                                const OpenRAVE::Vector & extents,
+                                const OpenRAVE::Vector & color,
+                                OpenRAVE::EnvironmentBasePtr & env,
+                                float transparency = 0)
+{
+
+    //create a cube to be used for collision detection in the world.
+    //  create an object and name that object 'cube'
+    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( env);
+    
+    std::stringstream ss;
+    ss   << pos[0] << "_"
+         << pos[1] << "_"
+         << pos[2] ; 
+
+    const std::string name = ss.str();
+
+    if( env->GetKinBody( name.c_str() ).get() ){return cube; }
+    cube->SetName( name.c_str() );
+
+    //set the dimensions of the cube object
+    std::vector< OpenRAVE::AABB > vaabbs(1);
+
+    /* extents = half side lengths */
+    vaabbs[0].extents = extents;
+    vaabbs[0].pos = pos;
+    cube->InitFromBoxes(vaabbs, true);
+    
+    //add the cube to the environment
+    env->Add( cube );
+
+    cube->GetLinks()[0]->GetGeometries()[0]->SetAmbientColor( color );
+    cube->GetLinks()[0]->GetGeometries()[0]->SetDiffuseColor( color );
+    cube->GetLinks()[0]->GetGeometries()[0]->SetTransparency(transparency);
+    
+    return cube;
+
+}
+
+
 } /* namespace orchomp */
-
-
 #endif 

@@ -119,6 +119,40 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
                 throw OpenRAVE::openrave_exception(
                         "Robot name not valid");
          }
+      }else if ( cmd == "activemanipindex" ){
+          int index;
+          sinput >> index;
+
+          if( robot.get() )
+          {
+              active_manip = robot->GetManipulators()[index];
+              robot->SetActiveManipulator( active_manip );
+              robot->SetActiveDOFs( active_manip->GetArmIndices() );
+              active_indices = robot->GetActiveDOFIndices();
+              robot->GetActiveDOFLimits(lowerJointLimits, upperJointLimits);
+              n_dof = active_indices.size();
+          }
+          else{ 
+                throw OpenRAVE::openrave_exception(
+                        "Robot name not valid");
+          }
+      }else if ( cmd == "activemanipname" ){
+          std::string name;
+          sinput >> name;
+
+          if( robot.get() )
+          {
+              active_manip = robot->SetActiveManipulator( name );
+              robot->SetActiveDOFs( active_manip->GetArmIndices() );
+              active_indices = robot->GetActiveDOFIndices();
+              robot->GetActiveDOFLimits(lowerJointLimits, upperJointLimits);
+              n_dof = active_indices.size();
+          }
+          else{ 
+                throw OpenRAVE::openrave_exception(
+                        "Robot name not valid");
+          }
+
       }else if (cmd =="obstol") {
             sinput >> info.obstol;
       }else if (cmd =="n") {

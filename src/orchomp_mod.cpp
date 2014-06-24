@@ -81,8 +81,16 @@ void mod::isTrajectoryWithinLimits() const {
 
 int mod::playback(std::ostream& sout, std::istream& sinput)
 {
-
     
+    double time = -1;
+    if ( !sinput.eof() ){
+        sinput >> time;
+    }
+    
+    if (time > 10 || time < 0.00001 ){
+        time = 0.02;
+    }
+
     trajectory = chomper->xi;
 
     for ( int i = 0; i < trajectory.rows(); i ++ ){
@@ -90,7 +98,7 @@ int mod::playback(std::ostream& sout, std::istream& sinput)
         std::vector< OpenRAVE::dReal > vec;
         getStateAsVector( trajectory.row(i), vec );
         
-        viewspheresVec( trajectory.row(i), vec, 0.02 );
+        viewspheresVec( trajectory.row(i), vec, time );
 
     }
 
@@ -131,7 +139,15 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
        RegisterCommand("playback",
             boost::bind(&mod::playback,this,_1,_2),
             "playback a trajectory on a robot");
-
+       RegisterCommand("visualizeslice",
+            boost::bind(&mod::visualizeslice,this,_1,_2),
+            "playback a trajectory on a robot");
+       RegisterCommand("addtsr",
+            boost::bind(&mod::addtsr,this,_1,_2),
+            "playback a trajectory on a robot");
+       RegisterCommand("viewtsr",
+            boost::bind(&mod::viewtsr,this,_1,_2),
+            "playback a trajectory on a robot");
 }
 
 /* ======================================================================== *
@@ -188,6 +204,111 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
     }
     return 0;
 }
+
+
+int mod::addtsr(std::ostream& sout, std::istream& sinput){
+    
+    chomp::Transform::quat pose_0_w_rot, pose_w_e_rot;
+    chomp::Transform::vec3 pose_0_w_trans, pose_w_e_trans;
+    chomp::MatX bounds(6,2);
+    OpenRAVE::dReal starttime, endtime;
+
+    while ( !sinput.eof() ){
+        std::string cmd;
+        sinput >> cmd;
+        if ( cmd == "pose_0_w" ){
+            sinput >> pose_0_w_rot[0];
+            sinput >> pose_0_w_rot[1];
+            sinput >> pose_0_w_rot[2];
+            sinput >> pose_0_w_trans[0];
+            sinput >> pose_0_w_trans[1];
+            sinput >> pose_0_w_trans[2];
+        }
+        else if ( cmd == "pose_w_e" ){
+            sinput >> pose_w_e_rot[0];
+            sinput >> pose_w_e_rot[1];
+            sinput >> pose_w_e_rot[2];
+            sinput >> pose_w_e_trans[0];
+            sinput >> pose_w_e_trans[1];
+            sinput >> pose_w_e_trans[2];
+        }
+        else if ( cmd == "bounds" ){
+            sinput >> bounds( 0, 0); sinput >> bounds( 0, 1);
+            sinput >> bounds( 1, 0); sinput >> bounds( 1, 1);
+            sinput >> bounds( 2, 0); sinput >> bounds( 2, 1);
+            sinput >> bounds( 3, 0); sinput >> bounds( 3, 1);
+            sinput >> bounds( 4, 0); sinput >> bounds( 4, 1);
+            sinput >> bounds( 5, 0); sinput >> bounds( 5, 1);
+        }
+        else if (cmd == "starttime"){ 
+            sinput >> starttime;
+            if (starttime < 0 || starttime > 1 ){
+                RAVELOG_ERROR("Starttime is out of bounds" );
+            }
+        }
+        else if (cmd == "endtime"  ){
+            sinput >> endtime;
+            if (endtime < 0 || endtime > 1 ){
+                RAVELOG_ERROR("Endtime is out of bounds" );
+            }
+        }
+        else if (cmd == "trajwide" || 
+                 cmd == "trajectorywide" ){
+            starttime = 0; 
+            endtime = 1;
+        }
+        else {
+            while ( !sinput.eof() ){
+                sinput >> cmd;
+                RAVELOG_ERROR("argument %s not known!\n",
+                              cmd.c_str() );
+            }
+            throw OpenRAVE::openrave_exception("Bad arguments!");
+        }
+
+    }
+    chomp::Transform pose_0_w(pose_0_w_rot, pose_0_w_trans);
+    chomp::Transform pose_w_e(pose_w_e_rot, pose_w_e_trans);
+
+    ORTSRConstraint * c = new ORTSRConstraint( this, pose_0_w,
+                                               bounds, pose_w_e );
+    factory->addConstraint( c, starttime, endtime );
+    tsrs.push_back( c );
+
+    return 1;
+}
+
+
+int mod::viewtsr(std::ostream & sout, std::istream& sinput){
+    
+    size_t index = 0;
+    if ( !sinput.eof() ){
+        sinput >> index;
+    }
+
+    assert( tsrs.size() > index );
+
+    //TSRs will be green because that is the color that they are.
+    OpenRAVE::Vector color( 0,1,0);
+    OpenRAVE::Vector size( 
+                tsrs[index]->_Bw(0,1) - tsrs[index]->_Bw(0,0),
+                tsrs[index]->_Bw(1,1) - tsrs[index]->_Bw(1,0),
+                tsrs[index]->_Bw(2,1) - tsrs[index]->_Bw(2,0) );
+    OpenRAVE::Vector position( 0,0,0 );
+
+    OpenRAVE::KinBodyPtr cube = createBox( position, size, color, 
+                                            environment, 0.5 );
+    
+    chomp::Transform::quat rot = tsrs[index]->_pose_0_w.rotation();
+    chomp::Transform::vec3 pos = tsrs[index]->_pose_0_w.translation();
+
+    OpenRAVE::Vector or_rot( rot[0], rot[1], rot[2] );
+    OpenRAVE::Vector or_pos( pos[0], pos[1], pos[2] );
+
+    OpenRAVE::Transform xform( or_rot, or_pos );
+    cube->SetTransform( xform );
+}
+
 
 //view the collision geometry. .
 int mod::viewspheresVec(const chomp::MatX & q,
@@ -313,6 +434,43 @@ int mod::computedistancefield(std::ostream& sout, std::istream& sinput)
 }
 
 
+int mod::visualizeslice(std::ostream& sout, std::istream& sinput)
+{
+    
+    //lock the environment
+    //OpenRAVE::EnvironmentMutex::scoped_lock lock(environment->GetMutex());
+    
+    size_t sdf_index(0), axis(2), slice_index(20);
+    double time( 3 );
+    bool getwhole = false;
+
+    while ( !sinput.eof() ){
+        std::string cmd;
+        sinput >> cmd;
+
+        if( cmd == "sdf" ){ sinput >> sdf_index; }
+        if( cmd == "axis" ){ sinput >> axis; }
+        if( cmd == "slice" ){ sinput >> slice_index; }
+        if( cmd == "time" ){ sinput >> time; }
+        if( cmd == "getwhole" ){ getwhole = true; }
+    }
+    
+    if( sphere_collider ){
+        if (getwhole ){
+            for ( size_t i = 0; i < sdfs[sdf_index].grid.dims()[axis]; i ++ ){
+                sphere_collider->visualizeSDFSlice( sdf_index, axis,
+                                                    i, time );
+            }
+        }else{
+            sphere_collider->visualizeSDFSlice( sdf_index, axis,
+                                            slice_index, time );
+        }
+    }
+
+    return 0;
+}
+
+
 int mod::addfield_fromobsarray(std::ostream& sout, std::istream& sinput)
 {
     parseAddFieldFromObsArray( sout,  sinput);
@@ -418,6 +576,9 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     
     return 0;
 }
+
+int mod::viewtsr(std::ostream& sout, std::istream& sinput){
+
 
 int mod::iterate(std::ostream& sout, std::istream& sinput)
 {

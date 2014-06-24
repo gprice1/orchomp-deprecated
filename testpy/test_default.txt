@@ -1,20 +1,21 @@
 create/
     loadrobot herb2_padded_nosensors.robot.xml/
     robot Herb2/
-    alpha 0.001/
+    alpha 0.01/
     n 50/
     n_max 100/
-#    nolocal/
-    obstol 0.000001/
+    dolocal/
+    obstol 0.00000001/
     doglobal/
     min_global_iter 20/
-    doobserve/
+    max_global_iter 400/
+#    doobserve/
     epsilon 0.10/
-    epsilon_self 0.01/
-    obs_factor 1/
-    obs_factor_self 1/
+    epsilon_self 0.05/
+    obs_factor 0.7/
+    obs_factor_self .3/
     jointpadding 0.05/
-    gamma 0.01/
+    gamma 0.05/
 #    nofactory/
 #    noenvironmentalcollision/
 #    noselfcollision/
