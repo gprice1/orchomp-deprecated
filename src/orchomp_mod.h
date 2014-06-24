@@ -37,6 +37,7 @@
 #include "orchomp_kdata.h"
 #include <openrave/openrave.h>
 #include <openrave/planningutils.h>
+#include <time.h>
 
 extern "C" {
 #include <gsl/gsl_rng.h>
@@ -48,6 +49,16 @@ extern "C" {
 #define debugStream \
     if (DEBUG_COUT) {} \
     else std::cout
+
+#define DEBUG_TIMING
+
+#ifdef DEBUG_TIMING
+#  define TIC() { struct timespec tic; struct timespec toc; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tic);
+#  define TOC(tsptr) clock_gettime(CLOCK_THREAD_CPUTIME_ID, &toc); CD_OS_TIMESPEC_SUB(&toc, &tic); CD_OS_TIMESPEC_ADD(tsptr, &toc); }
+#else
+#  define TIC()
+#  define TOC(tsptr)
+#endif
 
 
 namespace orchomp
@@ -72,7 +83,8 @@ public:
     //n_max: the final size,
     //max_global_iter: the max # of global chomp interations,
     //max_local_iter: the max # of local smoothing iterations
-    size_t n, n_max, max_global_iter, max_local_iter;
+    size_t n, n_max, min_global_iter, max_global_iter,
+                     min_local_iter, max_local_iter;
 
     //whether or not global and/or local chomp should
     //  be done.
@@ -84,8 +96,9 @@ public:
         alpha(0.1), obstol(0.01), t_total(1.0), gamma(0.1),
         epsilon( 0.1 ), epsilon_self( 0.01 ), obs_factor( 200 ),
         obs_factor_self( 5 ), jointPadding( 0.05 ),
-        n(0), n_max(0), max_global_iter( size_t(-1) ), 
-        max_local_iter( size_t(-1)), doGlobal( true ),
+        n(0), n_max(0),
+        min_global_iter( 0 ), max_global_iter( size_t(-1) ), 
+        min_local_iter( 0 ), max_local_iter( size_t(-1)), doGlobal( true ),
         doLocal( false), doObserve( false ), noFactory (false),
         noCollider( false ), noSelfCollision( false ),
         noEnvironmentalCollision( false )
@@ -124,6 +137,12 @@ public:
     {
     }
 
+    OpenRAVE::KinBodyPtr createCube( double cost,
+                                    double size,
+                                     OpenRAVE::EnvironmentBasePtr & env,
+                                    const OpenRAVE::Vector & pos
+                                         );
+
     // q - the current configuration
     // body_index - the index of the body to get the gradient, cost and jacobains
     //              for.
@@ -142,7 +161,8 @@ private:
     OpenRAVE::dReal getSelfCollisions( size_t body_index,
                                        const Sphere & current_sphere,
                                        const OpenRAVE::Vector & position, 
-                                       vec3 & gradient );
+                                       vec3 & gradient,
+                                       std::vector<OpenRAVE::dReal> & other);
 
 
 };

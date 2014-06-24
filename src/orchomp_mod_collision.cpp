@@ -31,7 +31,7 @@ OpenRAVE::dReal computeCostFromDist( OpenRAVE::dReal dist,
     }
     //if the gradient is far away enough from the object,
     //  then set the costs and gradient to zero
-    gradient = vec3(0,0,0);
+    
     return 0;
 
 }
@@ -57,6 +57,56 @@ bool mod::areAdjacent( int first, int second ) const {
 }
 
 
+OpenRAVE::KinBodyPtr SphereCollisionHelper::createCube( double cost,
+                                 double size,
+                                 OpenRAVE::EnvironmentBasePtr & env,
+                                 const OpenRAVE::Vector & pos
+                                 )
+{
+
+    //create a cube to be used for collision detection in the world.
+    //  create an object and name that object 'cube'
+    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( env);
+    
+    std::stringstream ss;
+    ss   << pos[0] << "_"
+         << pos[1] << "_"
+         << pos[2] ; 
+
+    const std::string name = ss.str();
+
+    if( env->GetKinBody( name.c_str() ).get() ){return cube; }
+    cube->SetName( name.c_str() );
+
+    //set the dimensions of the cube object
+    std::vector< OpenRAVE::AABB > vaabbs(1);
+
+    /* extents = half side lengths */
+    vaabbs[0].extents = OpenRAVE::Vector( size, size, size );
+    vaabbs[0].pos = pos;
+    cube->InitFromBoxes(vaabbs, true);
+    
+    //add the cube to the environment
+    env->Add( cube );
+
+    OpenRAVE::Vector color;  
+    if ( cost <= 0.5*epsilon ){
+        float val = cost/(0.5*epsilon);
+        color = OpenRAVE::Vector( 1,val,0 );
+    }
+    else if ( cost <= epsilon ){
+        float val = cost/(0.5*epsilon) - 1.0;
+        color = OpenRAVE::Vector( 1,1,val);
+    }else {
+        color = OpenRAVE::Vector( 1,1,1 );
+    }
+    cube->GetLinks()[0]->GetGeometries()[0]->SetAmbientColor( color );
+    cube->GetLinks()[0]->GetGeometries()[0]->SetDiffuseColor( color );
+
+    return cube;
+
+}
+
 OpenRAVE::dReal SphereCollisionHelper::getSDFCollisions(
                                       const Sphere & sphere,
                                       const OpenRAVE::Vector & position, 
@@ -71,36 +121,38 @@ OpenRAVE::dReal SphereCollisionHelper::getSDFCollisions(
 
     //debugStream << "Computing SDF Collisions" << std::endl;
     
-    vec3 trans( position[0], position[1], position[2] );
     OpenRAVE::dReal dist = HUGE_VAL;
 
     //check all of the sdfs, and get the one with the least dist 
     for ( size_t i = 0; i < module->sdfs.size(); i ++ ){
         
-        //if the point is not within the field, do not get the dist
-        if ( !module->sdfs[i].grid.isInside( trans )){
-            continue;
-        }
 
         OpenRAVE::dReal current_dist;
         vec3 current_gradient; 
 
         //get the distance and gradient.
-        current_dist = module->sdfs[i].getDist( trans, current_gradient );
+        current_dist = module->sdfs[i].getDist( position,current_gradient );
         
         if (current_dist < dist) {
             dist = current_dist;
             gradient = current_gradient;
         }
     }
-    
+
     //adjust the value of the distance by the radius of the
     //  sphere to account for the size of the sphere
     dist -= sphere.radius;
-
-    //debugStream << "Finished SDF Collisions" << std::endl;
     
-    return computeCostFromDist( dist, epsilon, gradient );
+    
+    //debugStream << "Finished SDF Collisions" << std::endl;
+    double cost = computeCostFromDist( dist, epsilon, gradient );
+    
+    /*
+    if ( cost > 0 ){
+        createCube( cost, 0.04, module->environment, position );
+    }
+    */
+    return cost;
 
 }
 
@@ -109,9 +161,12 @@ OpenRAVE::dReal SphereCollisionHelper::getSelfCollisions(
                                        size_t body_index,
                                        const Sphere & current_sphere,
                                        const OpenRAVE::Vector & position, 
-                                       vec3 & gradient )
+                                       vec3 & gradient,
+                        std::vector< OpenRAVE::dReal > & otherJacobian)
 {
-
+    
+   
+    
     gradient = vec3(0,0,0);
     OpenRAVE::dReal cost = 0;
     //index over all the other spheres, and check for collisions.
@@ -178,11 +233,24 @@ OpenRAVE::dReal SphereCollisionHelper::getSelfCollisions(
                                     - current_sphere.radius;
         
         //compute the cost from the distance.
-        cost += computeCostFromDist( dist_self, 
+        double current_cost = computeCostFromDist( dist_self, 
                                      epsilon_self,
                                      gradient_collision );
 
-        gradient += gradient_collision;
+        std::vector<OpenRAVE::dReal> collision_jacobian;
+        if ( current_cost > 0 ){
+            module->robot->CalculateActiveJacobian(
+                                    collision_sphere.linkindex,
+                                    collision_pos,
+                                    collision_jacobian);
+        }
+        for ( size_t i = 0; i < collision_jacobian.size(); i ++ ){
+            otherJacobian[i] += collision_jacobian[i] * current_cost;
+        }
+
+        
+        cost += current_cost;
+        gradient += gradient_collision * current_cost;
 
     }
     
@@ -203,7 +271,8 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
     dx_dq.conservativeResize( nwkspace, ncspace );
     cgrad.conservativeResize( nwkspace, 1 );
     
-    if( body_index == 0 ){
+    if( body_index == 0 )
+    {
         std::vector< OpenRAVE::dReal > vec;
         module->getStateAsVector( q, vec );
 
@@ -211,6 +280,7 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
         //assert( module->isWithinLimits( q ));
         
         //check the state vector for nan's.
+        // TODO remove this eventually
         for ( int i = 0; i < q.size(); i ++ ){
             if ( q(i) != q(i) ){
                 debugStream << q <<std::endl;
@@ -242,9 +312,13 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
     if (!module->info.noEnvironmentalCollision){
         cost_sdf = getSDFCollisions( current_sphere, current_pos, gradient_sdf );
     }
+
+    //fill the jacobian with zeros.
+    std::vector<OpenRAVE::dReal> otherJacobian( nwkspace * ncspace, 0.0);
     if (!module->info.noSelfCollision){
         cost_self = getSelfCollisions( body_index, current_sphere,
-                                   current_pos, gradient_self);
+                                   current_pos, gradient_self,
+                                   otherJacobian);
     }
 
     //create the structure for the jacobian computation
@@ -262,12 +336,24 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
     for (  size_t i = 0; i < nwkspace; i ++ ){
 
         //copy the gradient information
-        cgrad(i) = gradient_sdf[i] + gradient_self[i];
+        if ( cost_self > 0.0000001 ){
 
+            cgrad(i) = obs_factor*gradient_sdf[i]
+                 + obs_factor_self*gradient_self[i] / cost_self;
+        }else {
+            cgrad(i) = obs_factor*gradient_sdf[i];
+        }
+        
         for ( size_t j = 0; j < ncspace; j ++ ){
 
             //copy the jacobian information
-            dx_dq( i, j ) = jacobian[ i * ncspace + j ];
+
+            if (cost_self > 0.0000001 ){
+                dx_dq( i, j ) = jacobian[ i * ncspace + j ] 
+                            - otherJacobian[ i * ncspace + j ] / cost_self;
+            }else {
+                dx_dq( i, j ) = jacobian[ i * ncspace + j ] ;
+            }
         }
     }
     

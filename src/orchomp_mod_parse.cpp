@@ -25,7 +25,6 @@
  * This handles all of the parsing for the mod class from ordchomp_mod.h
  */
  
-#include <time.h>
 
 #include "orchomp_mod.h"
 #include "orchomp_kdata.h"
@@ -72,7 +71,6 @@ void mod::parsePoint( std::istream& sinput, chomp::MatX & point ){
 
 void mod::parseCreate(std::ostream & sout, std::istream& sinput)
 {
-#if DOPARSE || CREATEPARSE
     
    std::string cmd;
    /* parse command line arguments */
@@ -131,6 +129,10 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
             sinput >> info.alpha;
       }else if ( cmd == "gamma"){
           sinput >> info.gamma;
+      }else if (cmd =="min_global_iter") {
+            sinput >> info.min_global_iter;
+      }else if (cmd =="min_local_iter") {
+            sinput >> info.min_local_iter;
       }else if (cmd =="max_global_iter") {
             sinput >> info.max_global_iter;
       }else if (cmd =="max_local_iter") {
@@ -189,7 +191,6 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
 
 
    
-#endif
 }
 
 void mod::parseViewSpheres(std::ostream & sout, std::istream& sinput)

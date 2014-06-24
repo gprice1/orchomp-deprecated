@@ -23,19 +23,10 @@
  * (license-gpl.txt) and is also available at <http://www.gnu.org/licenses/>.
  */
 
-#include <time.h>
 #include "orchomp_mod.h"
 #include "orchomp_kdata.h"
 
-#define DEBUG_TIMING
 
-#ifdef DEBUG_TIMING
-#  define TIC() { struct timespec tic; struct timespec toc; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tic);
-#  define TOC(tsptr) clock_gettime(CLOCK_THREAD_CPUTIME_ID, &toc); CD_OS_TIMESPEC_SUB(&toc, &tic); CD_OS_TIMESPEC_ADD(tsptr, &toc); }
-#else
-#  define TIC()
-#  define TOC(tsptr)
-#endif
 
 
 namespace orchomp
@@ -99,7 +90,7 @@ int mod::playback(std::ostream& sout, std::istream& sinput)
         std::vector< OpenRAVE::dReal > vec;
         getStateAsVector( trajectory.row(i), vec );
         
-        viewspheresVec( trajectory.row(i), vec, 0.05 );
+        viewspheresVec( trajectory.row(i), vec, 0.02 );
 
     }
 
@@ -174,7 +165,7 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
         //make a kinbody sphere object to correspond to this sphere.
         OpenRAVE::KinBodyPtr sbody = 
                 OpenRAVE::RaveCreateKinBody( environment );
-        sprintf( text_buf, "orcdchomp_sphere_%d", int(i));
+        ;
         sbody->SetName(text_buf);
         
 
@@ -218,29 +209,24 @@ int mod::viewspheresVec(const chomp::MatX & q,
     char text_buf[1024];
     
     const size_t n_active = active_spheres.size();
-    const size_t n_inactive = inactive_spheres.size();
 
     std::vector< OpenRAVE::KinBodyPtr > bodies;
 
-    for ( size_t i=0; i < n_active + n_inactive ; i ++ )
+    for ( size_t i=0; i < n_active; i ++ )
     {
 
-        double cost;
+        double cost( 0 );
         chomp::MatX dxdq, cgrad;
 
         if( sphere_collider ){ 
             cost = sphere_collider->getCost( q, i, dxdq, cgrad );
-            if ( cost <= 0.5*sphere_collider->epsilon &&
-                 cost <= 0.5*sphere_collider->epsilon_self){
-                continue; }
+            if ( cost <= 0 ){ continue; }
         }
         
         //extract the current sphere
         //  if i is less than n_active, get a sphere from active_spheres,
         //  else, get a sphere from inactive_spheres
-        const Sphere & current_sphere = (i < n_active ?
-                                 active_spheres[i] :
-                                 inactive_spheres[i-n_active]);
+        const Sphere & current_sphere = active_spheres[i] ;
 
         //make a kinbody sphere object to correspond to this sphere.
         OpenRAVE::KinBodyPtr sbody = 
@@ -257,7 +243,8 @@ int mod::viewspheresVec(const chomp::MatX & q,
         OpenRAVE::Vector position = t * OpenRAVE::Vector(current_sphere.pose);
         
         //set the radius of the sphere
-        position.w = current_sphere.radius; 
+        position.w = current_sphere.radius *
+                     ( 1 + std::min(cost/(sphere_collider->epsilon ), 1.0)); 
 
         //give the kinbody the sphere parameters.
         svec.push_back( position );
@@ -265,7 +252,21 @@ int mod::viewspheresVec(const chomp::MatX & q,
         
         bodies.push_back( sbody );
         environment->Add( sbody );
-       
+
+        
+        OpenRAVE::Vector color;  
+        if ( cost <= 0.5*sphere_collider->epsilon ){
+            float val = cost/(0.5*sphere_collider->epsilon);
+            color = OpenRAVE::Vector( 1,val,0 );
+        }
+        else if ( cost <= sphere_collider->epsilon ){
+            float val = cost/(0.5*sphere_collider->epsilon) - 1.0;
+            color = OpenRAVE::Vector( 1,1,val);
+        }else {
+            color = OpenRAVE::Vector( 1,1,1 );
+        }
+        sbody->GetLinks()[0]->GetGeometries()[0]->SetAmbientColor( color );
+        sbody->GetLinks()[0]->GetGeometries()[0]->SetDiffuseColor( color );
     }
     
     while ( true ){
@@ -300,7 +301,7 @@ int mod::computedistancefield(std::ostream& sout, std::istream& sinput)
     
     //TODO uncomment the lock environment line.
     //lock the environment
-    //OpenRAVE::EnvironmentMutex::scoped_lock(environment->GetMutex());
+    OpenRAVE::EnvironmentMutex::scoped_lock lock(environment->GetMutex());
     
     //Parse the arguments
     parseComputeDistanceField( sout,  sinput);
@@ -375,7 +376,9 @@ int mod::create(std::ostream& sout, std::istream& sinput)
                                 info.max_global_iter,
                                 info.max_local_iter,
                                 info.t_total);
-
+    
+    chomper->min_global_iter = info.min_global_iter;
+    chomper->min_local_iter = info.min_local_iter;
      
     //TODO Compute signed distance field
     
@@ -401,6 +404,7 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     if (sphere_collider){
         collisionHelper = new chomp::ChompCollGradHelper(
                                 sphere_collider, info.gamma);
+        std::cout << "GAMMA: " << info.gamma << std::endl;
         chomper->ghelper = collisionHelper;
     }
     
@@ -512,7 +516,8 @@ int mod::gettraj(std::ostream& sout, std::istream& sinput)
     //this times the trajectory so that it can be
     //  sent to a planner
     OpenRAVE::planningutils::RetimeActiveDOFTrajectory(
-                             trajectory_ptr, robot);
+                             trajectory_ptr, robot, false, 0.2, 0.2,
+                             "LinearTrajectoryRetimer");
 
     debugStream << "Serializing trajectory output" << std::endl; 
     //serialize the trajectory and send it over the 

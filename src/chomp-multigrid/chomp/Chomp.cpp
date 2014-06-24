@@ -186,16 +186,10 @@ namespace chomp {
           g.row(t) += temp3.transpose();
           */
           //          scalar * M-by-W        * (WxW * Wx1   - scalar * Wx1)
-          g.row(t) += (scl * dx_dq.transpose() * (P * cgrad - cost * K)).transpose();
+          g.row(t) += (scl * (dx_dq.transpose() *
+                      (P * cgrad - cost * K)).transpose());
          
-          /*
-          for ( int i  = 0; i < g.cols() ; i ++ ){
-              //this tests for nans
-              if ( g(t, i) != g(t, i) ){
-                  std::cout << "There are nans in g" <<std::endl;
-              }
-          }
-          */
+
         }
         
       }
@@ -226,7 +220,9 @@ namespace chomp {
     q1(pgoal),
     alpha(al),
     objRelErrTol(obstol),
+    min_global_iter(0),
     max_global_iter(mg),
+    min_local_iter(0),
     max_local_iter(ml),
     full_global_at_final(false),
     t_total(tt)
@@ -401,8 +397,9 @@ namespace chomp {
       ++total_global_iter;
       prepareChompIter();
       double curObjective = evaluateObjective();
-      if (goodEnough(lastObjective, curObjective) ||
-          cur_global_iter >= max_global_iter) {
+      if (cur_global_iter > min_global_iter && (
+          goodEnough(lastObjective, curObjective) ||
+          cur_global_iter >= max_global_iter)) {
         global = false;
       }
       if (notify(CHOMP_GLOBAL_ITER, cur_global_iter, 
@@ -423,8 +420,9 @@ namespace chomp {
       ++total_local_iter;
       prepareChompIter();
       double curObjective = evaluateObjective();
-      if (goodEnough(lastObjective, curObjective) ||
-          cur_local_iter >= max_local_iter) {
+      if ( cur_local_iter > min_local_iter && (
+          goodEnough(lastObjective, curObjective) ||
+          cur_local_iter >= max_local_iter)) {
         local = false;
       }
       if (notify(CHOMP_LOCAL_ITER, cur_local_iter, 
@@ -600,13 +598,11 @@ namespace chomp {
 
       P = H_which.transpose();
       
-      std::cout << "CHeckpoint A" << std::endl;
       // TODO: see if we can make this more efficient?
       for (int i=0; i<P.cols(); i++){
         skylineCholSolveMulti(L_which, P.col(i));
       }
 
-      std::cout << "CHeckpoint B" << std::endl;
       debug << "H = \n" << H << "\n";
       debug << "P = \n" << P << "\n";
   
@@ -633,10 +629,8 @@ namespace chomp {
 
       W = (MatX::Identity(newsize,newsize) - H_which.transpose() * Y)*g_flat;
       
-      std::cout << "CHeckpoint C" << std::endl;
       skylineCholSolveMulti(L_which, W);
 
-      std::cout << "CHeckpoint D" << std::endl;
       Y = cholSolver.solve(h_which);
 
       debug_assert( h_which.isApprox(HP*Y) );

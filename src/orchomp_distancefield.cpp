@@ -1,5 +1,6 @@
 
 #include "orchomp_distancefield.h"
+#include "orchomp_mod.h"
 
 #define COLLISION -1
 #define NOCOLLISION 1
@@ -12,74 +13,98 @@ namespace orchomp {
 
 
 // a simple consturctor that initializes some values
-DistanceField::DistanceField() : aabb_padding(0.2), cube_extent(0.02)
+DistanceField::DistanceField() : aabb_padding(0.2), cube_extent(0.02), 
+    splitting_threshold( 100 )
 {
 }
 
 //a simple test function to see if two grids are the same;
 bool areEqual( DtGrid & first, DtGrid & second ){
-    for ( int i = 0; i < first.nx(); i ++ ){
-    for ( int j = 0; j < first.ny(); j ++ ){
-    for ( int j = 0; k < first.nz(); k ++ ){
+    for ( size_t i = 0; i < first.nx(); i ++ ){
+    for ( size_t j = 0; j < first.ny(); j ++ ){
+    for ( size_t k = 0; k < first.nz(); k ++ ){
         if ( first(i,j,k) != second(i,j,k) ){
             return false;
         }
     }
     }
     }
+
+    return true;
 }
 
 
 //several collision routines
-virtual inline bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
-                                          const OpenRAVE::Transform & world_to_cube ){
+inline bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
+                              const OpenRAVE::Transform & world_to_cube ){
 
     cube->SetTransform( world_to_cube );
-    if ( environment->CheckCollision( cube, kinbody ) ){
-        return true;
-    }
-
-    return false;
+    return environment->CheckCollision( cube, kinbody ); 
 }
 
-virtual bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube, int x1, int x2,
+bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube, 
+                                            int x1, int x2,
                                             int y1, int y2,
                                             int z1, int z2 )
 {
+
+    /* start timing voxel grid computation */
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &col_tic);
+
+
     const int xdist = x2-x1;
     const int ydist = y2-y1;
     const int zdist = z2-z1;
     
-    //get the offset from the index to the center of the cube.
-    OpenRAVE::Vector offset( xdist*cube_extent + x*cube_extent*2.0, 
-                             ydist*cube_extent + y*cube_extent*2.0,
-                             zdist*cube_extent + z*cube_extent*2.0);
+    //get the offset from the grid to the center of the cube.
+    OpenRAVE::Transform pose_grid_cube;
+    
+    pose_grid_cube.trans[0] = xdist*cube_extent + x1*cube_length; 
+    pose_grid_cube.trans[1] = ydist*cube_extent + y1*cube_length;
+    pose_grid_cube.trans[2] = zdist*cube_extent + z1*cube_length;
 
-    OpenRAVE::Transform world_to_cube = pose_world * offset;
+    OpenRAVE::Transform world_to_cube = pose_world_grid * pose_grid_cube;
 
-    return isCollided( cube, world_to_cube );
+    bool returnval =  isCollided( cube, world_to_cube );
+
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &col_toc);
+    CD_OS_TIMESPEC_SUB(&col_toc, &col_tic);
+    collision_total += CD_OS_TIMESPEC_DOUBLE(&col_toc);
+
+    return returnval;
 }
 
-virtual bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube, int x, int y, int z )
+bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
+                                            int x, int y, int z )
 {
-    OpenRAVE::Vector offset( cube_extent + x*cube_extent*2.0, 
-                             cube_extent + y*cube_extent*2.0,
-                             cube_extent + z*cube_extent*2.0);
+    
+    
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &col_tic);
 
-    OpenRAVE::Transform world_to_cube = pose_world * offset;
+    OpenRAVE::Transform pose_grid_cube; 
+    pose_grid_cube.trans[0] = cube_extent + x*cube_length;
+    pose_grid_cube.trans[1] = cube_extent + y*cube_length;
+    pose_grid_cube.trans[2] = cube_extent + z*cube_length;
 
-    return isCollided( cube, world_to_cube );
 
+    OpenRAVE::Transform world_to_cube = pose_world_grid * pose_grid_cube;
+    bool retval = isCollided( cube, world_to_cube );
+
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &col_toc);
+    CD_OS_TIMESPEC_SUB(&col_toc, &col_tic);
+    collision_total += CD_OS_TIMESPEC_DOUBLE(&col_toc);
+
+    return retval;
 }
+
+
 void DistanceField::setupGrid(size_t x, size_t y, size_t z )
 {
 
     grid.clear();
     grid.resize( x, y, z, DtGrid::AXIS_Z,
                  cube_extent * 2,
-                 vec3( pose_world[0],
-                       pose_world[1],
-                       pose_world[2] ));
+                 vec3( 0,0,0));
 }
 
 
@@ -87,31 +112,39 @@ void DistanceField::setupGrid(size_t x, size_t y, size_t z )
 //  the specified indices.
 inline void DistanceField::getCenterFromIndex( size_t x, size_t y, size_t z,
                                                OpenRAVE::Transform & t ) const {
-    t.identity();
-    const vec3 center = grid.cellCenter( x,y,z );
-    t.trans[0] = center[0];
-    t.trans[1] = center[1];
-    t.trans[2] = center[2];
+
+    OpenRAVE::Transform pose_grid_cube; 
+    pose_grid_cube.trans[0] = cube_extent + x*cube_length;
+    pose_grid_cube.trans[1] = cube_extent + y*cube_length;
+    pose_grid_cube.trans[2] = cube_extent + z*cube_length;
+    
+    //get the center of the cube in the world frame.
+    //pose_world_center = pose_world_grid * pose_grid_center
+    t = pose_world_grid * pose_grid_cube;
 }
 
-inline OpenRAVE::KinBodyPtr
+OpenRAVE::KinBodyPtr
 DistanceField::createCube( OpenRAVE::EnvironmentBasePtr & env,
-                           OpenRAVE::Vector & pos,
+                           OpenRAVE::Transform & pos,
                            std::string & name)
 
 {
+
+
     //create a cube to be used for collision detection in the world.
     //  create an object and name that object 'cube'
     OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( env );
+
+    if ( environment->GetKinBody( name.c_str() ).get() ){ return cube; }
     cube->SetName( name.c_str() );
     //set the dimensions of the cube object
     std::vector< OpenRAVE::AABB > vaabbs(1);
     /* extents = half side lengths */
     vaabbs[0].extents = 
         OpenRAVE::Vector(cube_extent, cube_extent, cube_extent);
-    vaabbs[0].pos = pos;
-    cube->InitFromBoxes(vaabbs, 1);
+    cube->InitFromBoxes(vaabbs, false );
     
+    cube->SetTransform( pos );
     //add the cube to the environment
     env->Add( cube );
 
@@ -120,16 +153,23 @@ DistanceField::createCube( OpenRAVE::EnvironmentBasePtr & env,
 }
 
 
-void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & environment )
+void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & env )
 {
- 
-
-    //get the geometry information
-    OpenRAVE::geometry::aabb< OpenRAVE::dReal > aabb;
-    //OpenRAVE::KinBody::KinBodyStateSaver statesaver(kinbody);
-    //kinbody->SetTransform(OpenRAVE::Transform());
-    aabb = kinbody->ComputeAABB();
     
+    //set the cube length.
+    cube_length = cube_extent * 2;
+    
+    //get the environment
+    this->environment = env;
+
+    OpenRAVE::geometry::aabb< OpenRAVE::dReal > aabb;
+/* compute aabb when object is at world origin */
+    {
+        OpenRAVE::KinBody::KinBodyStateSaver statesaver(kinbody);
+        kinbody->SetTransform(OpenRAVE::Transform());
+        aabb = kinbody->ComputeAABB();
+    }
+
     RAVELOG_INFO("    pos: %f %f %f\n", aabb.pos[0],
                                         aabb.pos[1],
                                         aabb.pos[2]);
@@ -155,35 +195,99 @@ void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & environment )
         RAVELOG_INFO("Grid Lengths [%d]: %f\n", i, lengths[i]);
     }
     
+    OpenRAVE::Transform pose_kinbody_grid;
+
     //get the pose of the voxel grid with respect to the world frame:
     for ( size_t i = 0; i < 3; i ++ ){
-        pose_world[i] = aabb.pos[i] - 0.5 * lengths[i];
+        pose_kinbody_grid.trans[i] = aabb.pos[i] - 0.5 * lengths[i];
     }
 
-    RAVELOG_INFO("SDF pose: %f, %f , %f\n", pose_world[0],
-                                            pose_world[1],
-                                            pose_world[2]   );
+    // pose_world_grid = pose_world_kinbody * pose_ kinbody_grid;
+    pose_world_grid = kinbody->GetTransform() * pose_kinbody_grid;
+    pose_grid_world = pose_world_grid.inverse();
+
+    RAVELOG_INFO("SDF pose: %f, %f , %f\n", pose_world_grid.trans[0],
+                                            pose_world_grid.trans[1],
+                                            pose_world_grid.trans[2] );
     
     //create a cube to do collision detection
     std::string cube_name = "unitCube";
-    unitcube = createCube( environment, pose_world, cube_name);
+    unitCube = createCube( environment, pose_world_grid, cube_name);
 
 
     //setup the grid object for computing the occupancy grid,
     //  and the gradient and distance fields
     setupGrid( sizes[0], sizes[1], sizes[2] );
 
+    size_t start, end[3];
+    start = size_t( aabb_padding / cube_length );
+    end[0] = grid.nx() - start;
+    end[1] = grid.ny() - start;
+    end[2] = grid.nz() - start;
+
+
     RAVELOG_INFO("computing occupancy grid ...\n");
     
-    
-    //fill the grid utilizing various methods.
-    simplefill();
-    octreefill( 0, grid.nx(), 0, grid.ny(), 0, grid.nz() );
+    DtGrid grids[3];
 
-    Bound b;
-    b.bounds = { 0, grid.nx(), 0, grid.ny(), 0, grid.nz() };
-    b.dists  = { grid.nx() - 1, grid.ny() - 1 , grid.nz() - 1};
+    struct timespec ticks_tic;
+    struct timespec ticks_toc;
+
+    /* start timing voxel grid computation */
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
+
+
+    kd_total = 0;
+    oct_total = 0;
+    double time_length;
+
+
+    //fill the grid utilizing various methods.
+    simplefill(start, end[0], start, end[1], start, end[2] );
+
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
+    CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
+    time_length = CD_OS_TIMESPEC_DOUBLE(&ticks_toc);
+
+    std::cout << "Time to compute SimpleFill(): " << time_length
+              << std::endl;
+    
+    collision_total = 0;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
+    
+    octreefill( start, end[0], start, end[1], start, end[2] );
+    
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
+    CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
+    time_length = CD_OS_TIMESPEC_DOUBLE(&ticks_toc);
+
+    std::cout << "Time to compute OcTreeFill(): " << time_length 
+              << "\nCollision Time: " << collision_total << std::endl;
+
+
+    collision_total = 0;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
+
+    Bound b(  start, end[0], start, end[1], start, end[2],
+             end[0] - start, end[1] - start, end[2] - start );
     kdtreefill( b, XAXIS ); 
+    
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
+    CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
+    time_length = CD_OS_TIMESPEC_DOUBLE(&ticks_toc);
+
+    std::cout << "Time to compute KDTreeFill(): " << time_length 
+              << "\nCollision Time: " << collision_total << std::endl;
+
+    
+    std::cout << "Oct time adding cubes: " << oct_total << std::endl;
+    std::cout << "kd time adding cubes: " << kd_total << std::endl;
+    //grids[2] = grid;
+    //assert( areEqual( grids[0], grids[1] ));
+    //assert( areEqual( grids[1], grids[2] ));
+    //assert( areEqual( grids[0], grids[2] ));
+    //assert( areEqual( grid, grids[2] ));
+    
     //Creates a distance field and gradient field from the binary values.
     //  values above 0 are inside objects, 
     //  values below 0 are outside of objects
@@ -194,7 +298,25 @@ void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & environment )
    
 }
 
-OpenRAVE::dReal DistanceField::getDist( const vec3 & trans, vec3 & gradient ){
+OpenRAVE::dReal DistanceField::getDist( const OpenRAVE::Vector & pos,
+                                        vec3 & gradient )
+{
+
+    //TODO remove some of this copying if you can.
+
+    const OpenRAVE::Vector grid_point = pose_grid_world * pos;
+
+    //check the bounds of the box, and if the point is not within the
+    //  bounds, return huge_val;
+    for ( size_t i = 0; i < 3; i ++){
+        if ( grid_point[i] < 0 || grid_point[i] > lengths[i] ){
+            return HUGE_VAL;
+        }
+    }
+
+    vec3 trans( grid_point[0],
+                grid_point[1],
+                grid_point[2] );
     
     return grid.sample( trans, gradient );
 }
@@ -206,14 +328,15 @@ OpenRAVE::KinBodyPtr DistanceField::createCube( int xdist, int ydist, int zdist 
 
     //create a cube to be used for collision detection in the world.
     //  create an object and name that object 'cube'
-    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( env );
+    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( environment );
 
     std::stringstream ss;
-    ss   << xdist << "_"
+    ss   << kinbody->GetName() << "_"
+         << xdist << "_"
          << ydist << "_"
          << zdist ; 
 
-    std::name = ss.str()
+    const std::string name = ss.str();
     cube->SetName( name.c_str() );
 
     //set the dimensions of the cube object
@@ -225,17 +348,47 @@ OpenRAVE::KinBodyPtr DistanceField::createCube( int xdist, int ydist, int zdist 
                          cube_extent*ydist,
                          cube_extent*zdist );
 
-    cube->InitFromBoxes(vaabbs, 1);
+    cube->InitFromBoxes(vaabbs, false);
     
     //add the cube to the environment
-    env->Add( cube );
+    environment->Add( cube );
 
     return cube;
 
 }
 
 
-void DistanceField::setgrid( int x1, int x2, int y1, int y2, int z1, int z2, int value ){
+void DistanceField::initVariableCube()
+{
+
+    //create a cube to be used for collision detection in the world.
+    //  create an object and name that object 'cube'
+    variableCube = RaveCreateKinBody( environment );
+
+
+    const std::string name = "variableCube";
+    variableCube->SetName( name.c_str() );
+
+    //set the dimensions of the cube object
+    variableCubeGeometry.resize(1);
+
+    //add the cube to the environment
+    environment->Add( variableCube );
+
+}
+
+void DistanceField::resizeVariableCube( int x, int y, int z ){
+
+    variableCubeGeometry[0].extents[0] = x * cube_extent;
+    variableCubeGeometry[0].extents[1] = y * cube_extent;
+    variableCubeGeometry[0].extents[2] = z * cube_extent;
+
+    variableCube->InitFromBoxes( variableCubeGeometry, false );
+
+}
+
+void DistanceField::setGrid( int x1, int x2, int y1, int y2, int z1, int z2, int value ){
+
     for ( int i = x1; i < x2; i ++ ){
         for ( int j = y1; j < y2; j ++){
             for ( int k = z1; k < z2; k ++ ){
@@ -247,14 +400,14 @@ void DistanceField::setgrid( int x1, int x2, int y1, int y2, int z1, int z2, int
 }
 
 
-void DistanceField::simplefill(){
-
-    //TODO make this do octree stuff
-    //index over every point in the grid. and get the collision 
-    //  information.
-    for ( size_t i= 0; i < grid.nx() ; i ++ ){
-    for ( size_t j= 0; j < grid.ny() ; j ++ ){
-    for ( size_t k= 0; k < grid.nz() ; k ++ ){
+void DistanceField::simplefill(size_t x1, size_t x2,
+                               size_t y1, size_t y2,
+                               size_t z1, size_t z2 ){
+    
+     
+    for ( size_t i= x1; i < x2 ; i ++ ){
+    for ( size_t j= y1; j < y2 ; j ++ ){
+    for ( size_t k= z1; k < z2 ; k ++ ){
         
         //find the transfrom from the grid to the center of the
         //  indexed cell
@@ -268,12 +421,13 @@ void DistanceField::simplefill(){
             //If there is a collision, set the value to 1
             grid(i,j,k) = COLLISION;
             
+            /*
             //TODO remove this
             std::stringstream ss;
-            ss << i << "_" << j << "_" << k;
+            ss << kinbody->GetName() << "_" << i << "_" << j << "_" << k;
             std::string nameofthecube = ss.str();
-            createCube( environment, world_to_cube.trans, nameofthecube  );
-
+            createCube( environment, world_to_cube, nameofthecube  );
+            */
         }else {
             //If there is no collision, set the value to -1.
             grid(i,j,k) = NOCOLLISION;
@@ -288,7 +442,13 @@ void DistanceField::octreefill( int x1, int x2, int y1, int y2, int z1, int z2 )
     const int xdist = x2 - x1;
     const int ydist = y2 - y1;
     const int zdist = z2 - z1;
-    
+   
+    if ( splitting_threshold > xdist * ydist * zdist )
+    {
+        simplefill( x1, x2, y1, y2, z1, z2);
+        return;
+    }
+
     //base case:
     if ( xdist == 1 && ydist == 1 && zdist == 1){
         if ( isCollided( unitCube, x1, y1, z1) ){
@@ -305,15 +465,27 @@ void DistanceField::octreefill( int x1, int x2, int y1, int y2, int z1, int z2 )
     const bool y_valid = ( ydist > 1 ? true : false );
     const bool z_valid = ( zdist > 1 ? true : false );
     
-    const int xmid = x1 + xdist/2 + 1;
-    const int xmid = y1 + ydist/2 + 1;
-    const int xmid = z1 + zdist/2 + 1;
+    const int new_xdist = (xdist-1)/2 + 1;
+    const int new_ydist = (ydist-1)/2 + 1;
+    const int new_zdist = (zdist-1)/2 + 1;
+    
+    const int xmid = x1 + new_xdist;
+    const int ymid = y1 + new_ydist;
+    const int zmid = z1 + new_zdist;
     
 
     //check all of the squares:
-    cube = createcube( x1, xmid, y1, ymid, z1, zmid );
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &oct_tic);
 
-    
+    OpenRAVE::KinBodyPtr cube = createCube( new_xdist,
+                                            new_ydist,
+                                            new_zdist);
+
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &oct_toc);
+
+    CD_OS_TIMESPEC_SUB(&oct_toc, &oct_tic);
+    oct_total += CD_OS_TIMESPEC_DOUBLE(&oct_toc);
+
     //check for collision in each of the 8 different spaces
 
     if( isCollided( cube, x1, xmid, y1, ymid, z1, zmid ) )
@@ -385,40 +557,73 @@ void DistanceField::octreefill( int x1, int x2, int y1, int y2, int z1, int z2 )
             setGrid( xmid, x2, ymid, y2, zmid, z2, NOCOLLISION );
         }
     }
-    
-    environment->Remove( cube )
+   
+    //check all of the squares:
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &oct_tic);
+
+    environment->Remove( cube );
+
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &oct_toc);
+
+    CD_OS_TIMESPEC_SUB(&oct_toc, &oct_tic);
+    oct_total += CD_OS_TIMESPEC_DOUBLE(&oct_toc);
 }
 
 
 
-void DistanceField::kdtreefill( Bound b, int AXIS ){
+void DistanceField::kdtreefill( Bound b, int AXIS){
+    
+    if ( splitting_threshold > b.dists[0] * b.dists[1] * b.dists[2] )
+    {
+        simplefill( b.bounds[0], b.bounds[1],
+                    b.bounds[2], b.bounds[3],
+                    b.bounds[4], b.bounds[5] );
+        return;
+    }
 
     //Get the axis along which to split the space.
     for ( int i = 0; i < 3; i ++ ){
-        if ( AXIS == ZAXIS ){ AXIS == XAXIS; }
+        if ( AXIS == ZAXIS ){ AXIS = XAXIS; }
         else { AXIS++ ; }
 
         //bail out when we find a dimension with greater than one dist.
-        if (b.dist[AXIS] > 1 ){ break; }
+        if (b.dists[AXIS] > 1 ){ break; }
     } 
     
-    //base case : all of the Axes have a dist of 1, so it is just a single cube.
-    if (b.dist[AXIS] == 1 )
+    //base case : all of the Axes have a dist of 1,
+    //  so it is just a single cube.
+    if (b.dists[AXIS] == 1 )
     {
-        if ( isCollided( unitCube, b.bounds[0], b.bounds[1], b.bounds[2] ) ){
-            grid( b.bounds[0], b.bounds[0], b.bounds[0] ) = COLLISION;
+        if ( isCollided( unitCube, b.bounds[0], b.bounds[2], b.bounds[4] )){
+            grid( b.bounds[0], b.bounds[2], b.bounds[4] ) = COLLISION;
         }else{
-            grid( b.bounds[0], b.bounds[0], b.bounds[0] ) = NOCOLLISION;
+            grid( b.bounds[0], b.bounds[2], b.bounds[4] ) = NOCOLLISION;
         }
         return;
     }
 
 
-    //If it is not a base case, split along the middle of the given dimension.
-    b.dist[AXIS] = b.dist[AXIS]/2 + 1;
-    const int midpoint = b.bounds[AXIS*2] + newdist;
+    //If it is not a base case, split along the middle of the given
+    // dimension.
+    //  Round the dist up: this equation does that.
+    //  ie: dist 4 -> 2, dist 3->2, dist 1->1
+    b.dists[AXIS] = (b.dists[AXIS]-1)/2 + 1;
+    const int midpoint = b.bounds[AXIS*2] + b.dists[AXIS];
+    
+    assert( midpoint < b.bounds[AXIS*2+1] );
 
-    OpenRAVE::KinBodyPtr cube = createCube( b.dists[0], b.dists[1], b.dists[2] );
+    //check all of the squares:
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &kd_tic);
+
+    OpenRAVE::KinBodyPtr cube = createCube( b.dists[0],
+                                            b.dists[1],
+                                            b.dists[2] );
+
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &kd_toc);
+
+    CD_OS_TIMESPEC_SUB(&kd_toc, &kd_tic);
+    kd_total += CD_OS_TIMESPEC_DOUBLE(&kd_toc);
+
 
     /////////////Check the top half////////////////////////////////
     const int temp = b.bounds[AXIS*2+1];
@@ -427,9 +632,9 @@ void DistanceField::kdtreefill( Bound b, int AXIS ){
     if ( isCollided(cube, b.bounds[0], b.bounds[1], b.bounds[2],
                           b.bounds[3], b.bounds[4], b.bounds[5] ) )
     {
-        kdtreefill( b, AXIS );
+        kdtreefill( b, AXIS);
     }else {
-        setgrid( b.bounds[0], b.bounds[1], b.bounds[2],
+        setGrid( b.bounds[0], b.bounds[1], b.bounds[2],
                  b.bounds[3], b.bounds[4], b.bounds[5], NOCOLLISION );
     }
 
@@ -438,18 +643,19 @@ void DistanceField::kdtreefill( Bound b, int AXIS ){
     //restore the original value of the upper bound;
     b.bounds[AXIS*2+1] = temp;
     b.bounds[AXIS*2] = midpoint;
-    b.dist[AXIS] = b.bounds[AXIS*2+1] - b.bounds[AXIS*2];
+    b.dists[AXIS] = b.bounds[AXIS*2+1] - b.bounds[AXIS*2];
 
     if ( isCollided( cube, b.bounds[0], b.bounds[1], b.bounds[2],
                            b.bounds[3], b.bounds[4], b.bounds[5] ) )
     {
-        kdtreefill( b, AXIS );
+        kdtreefill( b, AXIS);
     }else {
-        setgrid( b.bounds[0], b.bounds[1], b.bounds[2],
+        setGrid( b.bounds[0], b.bounds[1], b.bounds[2],
                  b.bounds[3], b.bounds[4], b.bounds[5], NOCOLLISION );
     }
 
     environment->Remove( cube );
+
 }
 
 } // namespace orchomp

@@ -199,8 +199,8 @@ namespace chomp {
     double alpha;
     double objRelErrTol;
 
-    size_t max_global_iter;
-    size_t max_local_iter;
+    size_t min_global_iter, max_global_iter;
+    size_t min_local_iter, max_local_iter;
 
     bool full_global_at_final;
 
