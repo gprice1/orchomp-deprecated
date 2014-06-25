@@ -14,6 +14,8 @@ class mod;
 class UnifiedConstraint : public chomp::Constraint{
   public:
     
+    int num_outputs;
+    
     std::vector< chomp::Constraint * > constraints;
     
     void addConstraint( chomp::Constraint * c ){
@@ -23,10 +25,10 @@ class UnifiedConstraint : public chomp::Constraint{
                                      chomp::MatX& h, 
                                      chomp::MatX& H);
 
-    virtual size_t numOutputs(){ return 1; }
+    virtual size_t numOutputs(){ return num_outputs; }
     
     //empty constructor
-    UnifiedConstraint(){}
+    UnifiedConstraint() : num_outputs(1){}
     ~UnifiedConstraint(){}
 
 };
@@ -50,8 +52,8 @@ class ORTSRConstraint : public chomp::TSRConstraint {
     //this takes in a state and it gets the jacobian 
     virtual void computeJacobian( const chomp::MatX& qt,
                                   const chomp::Transform & pose_world_ee,
-                                  chomp::MatX & jacobian
-                                  );
+                                  chomp::MatX & jacobian,
+                                  std::vector< int > & active_dims);
 };
 
 

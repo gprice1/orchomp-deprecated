@@ -207,7 +207,8 @@ namespace chomp {
     double t_total; // total time for (N+1) timesteps
     double dt; // computed automatically from t_total and N
     double inv_dt; // computed automatically from t_total and N
-
+    
+    
     Eigen::LDLT<MatX> cholSolver;
 
     std::vector<Constraint*> constraints; // vector of size N

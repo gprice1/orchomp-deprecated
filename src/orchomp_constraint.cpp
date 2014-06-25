@@ -18,24 +18,24 @@ void UnifiedConstraint::evaluateConstraints( const chomp::MatX& qt,
     H_vec.resize( constraints.size() );
     
     //get all of the constraints
-    int height = 0;
+    num_outputs = 0;
     for ( size_t i = 0; i < constraints.size(); i ++ ){
         constraints[i]->evaluateConstraints( qt, h_vec[i], H_vec[i] );
-        height += H_vec[i].rows();
+        num_outputs += H_vec[i].rows();
     }
     
-    if ( height == 0 ){
+    if ( num_outputs == 0 ){
         h.resize( 0 , 0 );
         H.resize( 0, 0 );
         return;
     }
-
+    
     //resize the main constraint vectors
-    if ( h.cols() != 1 || h.rows() != height ){
-        h.resize( height, 1 );
+    if ( h.cols() != 1 || h.rows() != num_outputs ){
+        h.resize( num_outputs, 1 );
     }
-    if ( H.cols() != DoF || H.rows() != height ){
-        H.resize( height, qt.size() );
+    if ( H.cols() != DoF || H.rows() != num_outputs ){
+        H.resize( num_outputs, qt.size() );
     }
      
 
@@ -79,8 +79,8 @@ void ORTSRConstraint::forwardKinematics( const chomp::MatX& qt,
 void ORTSRConstraint::computeJacobian( 
                               const chomp::MatX& qt,
                               const chomp::Transform & pose_world_ee,
-                              chomp::MatX & jacobian
-                              )
+                              chomp::MatX & jacobian,
+                              std::vector< int > & active_dims)
 {
 
 
@@ -97,25 +97,41 @@ void ORTSRConstraint::computeJacobian(
     std::vector< OpenRAVE::dReal > translationJacobian;
     std::vector< OpenRAVE::dReal > rotationJacobian;
 
+    //check if we should do rotation or translation jacobians
+    _getRotationJacobian = false;
+    _getTranslationJacobian = false;
+
+    for ( size_t i = 0; i < active_dims.size(); i++ ){
+        if ( active_dims[i] >= 3 ){
+            _getRotationJacobian = true;
+        }
+        if ( active_dims[i] < 3 ){
+            _getTranslationJacobian = true;
+        }
+    }
+    
+    const OpenRAVE::Transform t = module->active_manip
+                                        ->GetEndEffectorTransform();
+
     //get the jacobians if we need them
     if ( _getTranslationJacobian ){
-        module->robot->CalculateJacobian( ee_link_index,
-                                          OpenRAVE::Vector( 0.0, 0.0, 0.0),
-                                          translationJacobian);
+        module->robot->CalculateActiveJacobian( ee_link_index,
+                                                       t.trans,
+                                                       translationJacobian);
         assert( translationJacobian.size() == size_t( DOF * 3 ));
     }
     if ( _getRotationJacobian ){
-        module->robot->CalculateRotationJacobian( ee_link_index,
-                                          OpenRAVE::Vector( 0.0, 0.0, 0.0),
+        module->robot->CalculateActiveRotationJacobian( ee_link_index,
+                                          t.rot,
                                           rotationJacobian);
         assert( rotationJacobian.size() == size_t( DOF * 3 ) );
     }
 
     //copy the jacobian data into the jacobian matrix
-    for ( size_t i = 0; i < _dimension_id.size(); i ++ ){
+    for ( size_t i = 0; i < active_dims.size(); i ++ ){
 
         //extract the current index
-        const int j = _dimension_id[i];
+        const int j = active_dims[i];
         
         for ( int k = 0; k < DOF; k ++ ){
 
@@ -226,7 +242,7 @@ void ORConstraintFactory::evaluate(
                 chomp::MatX& H_tot, int step)
 {
 
-    debugStream << "Evaluating Constraints" <<std::endl; 
+    //debugStream << "Evaluating Constraints" <<std::endl; 
 
     size_t DoF = xi.cols();
 
@@ -279,7 +295,7 @@ void ORConstraintFactory::evaluate(
         h_tot.resize( 0,0 );
         H_tot.resize( 0,0 );
 
-        debugStream << "Done Evaluating Constraints" <<std::endl; 
+        //debugStream << "Done Evaluating Constraints" <<std::endl; 
         return;
     }
 
@@ -312,7 +328,7 @@ void ORConstraintFactory::evaluate(
         }
         row_start += height;
     }
-    debugStream << "Done Evaluating Constraints" <<std::endl; 
+    //debugStream << "Done Evaluating Constraints" <<std::endl; 
     
 }
 

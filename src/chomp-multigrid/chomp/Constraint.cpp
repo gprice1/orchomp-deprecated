@@ -150,8 +150,14 @@ namespace chomp {
         _dim_constraint = 0;
         for ( int i = 0; i < 6; i ++ ){
 
-            if ( -HUGE_VAL < _Bw(i, 0 ) || _Bw(i, 1 ) < HUGE_VAL ){
-
+            //if it is a translation dimension, and one of the bounds is 
+            //  between (-HUGE_VAL and +HUGE_VAL) or if it is a
+            //  rotation dimension, and one of the dimensions is 
+            //  between (-PI and +PI).
+            if ( (i < 3 && (_Bw(i,0) > -HUGE_VAL || _Bw(i,1) < HUGE_VAL ))
+                ||
+                 (i >=3 && (_Bw(i,0) > -M_PI     || _Bw(i,1) < M_PI )) )
+            {
                 //store the index of all dimensions that are constrained
                 _dimension_id.push_back( i );
 
@@ -159,14 +165,15 @@ namespace chomp {
                 _dim_constraint ++;
 
                 if ( i <  3 ){ _getTranslationJacobian = true; }
-                if ( i >= 3 ){ _getRotationJacobian = true; }
+                if ( i >= 3 ){ _getRotationJacobian    = true; }
             }
 
         }
     }
 
 
-    inline void TSRConstraint::endeffectorToTSRFrame( const Transform & pose_ee,
+    inline void TSRConstraint::endeffectorToTSRFrame(
+                                               const Transform & pose_ee,
                                                double * xyzrpy){
         
         //this is the transform from the tsr to the end effector.
@@ -210,36 +217,36 @@ namespace chomp {
           h.resize(_dim_constraint, 1);
         }
         
-        if (size_t(H.rows()) != _dim_constraint || size_t(H.cols()) != DoF)
-        {
-          H.resize(_dim_constraint, DoF);
-        }
+        int current_dim = 0;
 
-        H.setZero();
-        
+        std::vector< int > active_dims;
+
         for ( int i = 0; i < _dim_constraint; i ++ )
         {
             int dim = _dimension_id[i];
             
             //if the robot's position goes over the TSR's upper bound:
             if ( xyzrpy[dim] > _Bw(dim, 1) ){
-                h(i) = xyzrpy[ dim ] - _Bw(dim, 1);
+                h(current_dim) = xyzrpy[ dim ] - _Bw(dim, 1);
+                active_dims.push_back( dim );
+                current_dim ++;
             }
             //if the robot's position goes below the TSR's lower bound:
             else if ( xyzrpy[dim] < _Bw( dim, 0 ) ){
-                h(i) = xyzrpy[ dim ] - _Bw(dim, 0);
-            }
-            //if the robot's position is inside of the TSR's bounds:
-            // TODO : Should the Jacobian be set to 0 here?
-            //  This could be bad because there are disconintuities in
-            //  the derivative of the constraint function
-            else {
-                h(i) = 0.0;
-                H(i, dim) = 0.0;
+                h(current_dim) = xyzrpy[ dim ] - _Bw(dim, 0);
+                active_dims.push_back( dim );
+                current_dim ++;
             }
         }
 
-        computeJacobian( qt, pos, H ); 
+        
+        if ( current_dim != _dim_constraint ){
+            h.conservativeResize( current_dim, 1 );
+        }
+        if ( H.rows() != current_dim || size_t( H.cols() ) != DoF ){
+            H.resize( current_dim, DoF );
+        }
+        computeJacobian( qt, pos, H, active_dims ); 
     }
 
 

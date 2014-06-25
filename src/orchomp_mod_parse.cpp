@@ -210,8 +210,8 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
       //error case
       else{ 
           while ( !sinput.eof() ){
-              sinput >> cmd;
               RAVELOG_ERROR("argument %s not known!\n", cmd.c_str() );
+              sinput >> cmd;
           }
           throw OpenRAVE::openrave_exception("Bad arguments!");
       }

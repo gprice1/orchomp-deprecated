@@ -38,6 +38,7 @@
 #include <openrave/openrave.h>
 #include <openrave/planningutils.h>
 #include <time.h>
+#include <stack>
 
 extern "C" {
 #include <gsl/gsl_rng.h>
@@ -382,7 +383,7 @@ inline void mod::setActiveDOFValues( const chomp::MatX & qt ){
 
 
 
-OpenRAVE::KinBodyPtr createBox( const OpenRAVE::Vector & pos,
+inline OpenRAVE::KinBodyPtr createBox( const OpenRAVE::Vector & pos,
                                 const OpenRAVE::Vector & extents,
                                 const OpenRAVE::Vector & color,
                                 OpenRAVE::EnvironmentBasePtr & env,

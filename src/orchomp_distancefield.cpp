@@ -2,8 +2,10 @@
 #include "orchomp_distancefield.h"
 #include "orchomp_mod.h"
 
-#define COLLISION -1
-#define NOCOLLISION 1
+#define COLLISION -2
+#define NOCOLLISION -1
+#define NOCOLLISION_EXPLORED 1
+
 #define XAXIS 0
 #define YAXIS 1
 #define ZAXIS 2
@@ -225,11 +227,10 @@ void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & env )
     end[1] = grid.ny() - start;
     end[2] = grid.nz() - start;
 
+    fillGridEdges( start, end );
 
     RAVELOG_INFO("computing occupancy grid ...\n");
     
-    DtGrid grids[3];
-
     struct timespec ticks_tic;
     struct timespec ticks_toc;
 
@@ -282,17 +283,28 @@ void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & env )
     
     std::cout << "Oct time adding cubes: " << oct_total << std::endl;
     std::cout << "kd time adding cubes: " << kd_total << std::endl;
-    //grids[2] = grid;
-    //assert( areEqual( grids[0], grids[1] ));
-    //assert( areEqual( grids[1], grids[2] ));
-    //assert( areEqual( grids[0], grids[2] ));
-    //assert( areEqual( grid, grids[2] ));
     
-    //Creates a distance field and gradient field from the binary values.
-    //  values above 0 are inside objects, 
-    //  values below 0 are outside of objects
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
+    
+    simpleFloodFill( 0, grid.nx(), 0, grid.ny(), 0, grid.nz() );
+    /*
+    simpleFloodFill( start-1, end[0]+1, 
+                     start-1, end[1]+1,
+                     start-1, end[2]+1 );
+    */
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
+    CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
+    time_length = CD_OS_TIMESPEC_DOUBLE(&ticks_toc);
+    std::cout << "Flood fill time: " << time_length <<std::endl;
+
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
     grid.computeDistsFromBinary();
     
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
+    CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
+    time_length = CD_OS_TIMESPEC_DOUBLE(&ticks_toc);
+    std::cout << "Dist computation time: " << time_length <<std::endl;
+
     //delete the cube , because we don't need this anymore
     environment->Remove( unitCube );
    
@@ -357,6 +369,46 @@ OpenRAVE::KinBodyPtr DistanceField::createCube( int xdist, int ydist, int zdist 
 
 }
 
+//fills the reachable area with NOCOLLISION_EXPLORED
+void DistanceField::simpleFloodFill(int x1, int x2, 
+                                    int y1, int y2,
+                                    int z1, int z2 ){
+
+    vec3u lower( x1,y1,z1 ), upper( x2,y2,z2 );
+
+    std::stack< vec3u > stack;
+    stack.push( vec3u( x1,y1,z1 ) );
+
+    assert( grid(x1,y1,z1) == NOCOLLISION );
+    grid(x1,y1,z1) = NOCOLLISION_EXPLORED;
+
+    while( !stack.empty() ){
+        
+        const vec3u top = stack.top();
+        stack.pop();
+
+        //for each of the three dimesions, try to grow out the viable area.
+        for( int i = 0; i < 3; i ++ ){
+            
+            vec3u current = top;
+            current[i] += 1;
+            if ( current[i] < upper[i] && grid( current ) == NOCOLLISION ){
+                grid( current ) = NOCOLLISION_EXPLORED;
+                stack.push( current );
+            }
+            
+            //since we already added 1, we need to minus 2 to get to
+            //  top[i] - 1.
+            current[i] -=2;
+            if ( current[i] >= lower[i] && grid( current ) == NOCOLLISION ){
+                grid( current ) = NOCOLLISION_EXPLORED;
+                stack.push( current );
+            }
+
+        }
+    }
+        
+}
 
 void DistanceField::initVariableCube()
 {
@@ -397,6 +449,32 @@ void DistanceField::setGrid( int x1, int x2, int y1, int y2, int z1, int z2, int
             }
         }
     }
+}
+
+//The padding creates a boundary around the object
+//  that is not filled with anything, set all of these
+//  areas to no collision.
+//There is overlap in these areas, so do not double set them for
+//  efficiency reasons
+void DistanceField::fillGridEdges( size_t start, size_t * end ){
+    
+    //fill the z=0 face.
+    setGrid( 0, grid.nx(), 0, grid.ny(), 0, start, NOCOLLISION );
+
+    //fill the z=grid.nz() face.
+    setGrid( 0, grid.nx(), 0, grid.ny(), end[2], grid.nz() , NOCOLLISION );
+
+    //fill the y=0 face 
+    setGrid( 0, grid.nx(), 0, start, start, end[2], NOCOLLISION);
+    
+    //fill the y =grid.ny face.
+    setGrid( 0, grid.nx(), end[1], grid.ny(), start, end[2], NOCOLLISION );
+    
+    //fill the x = 0 face
+    setGrid( 0, start, start, end[1], start, end[2], NOCOLLISION );
+
+    //fill the x = grid.nx face
+    setGrid( end[0], grid.nx(), start, end[1], start, end[2], NOCOLLISION );
 }
 
 

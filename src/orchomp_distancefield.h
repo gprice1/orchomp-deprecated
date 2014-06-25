@@ -136,7 +136,11 @@ private:
     void setGrid( int x1, int x2, int y1, int y2,
                   int z1, int z2, int value );
     
+    void fillGridEdges( size_t start, size_t * end );
     
+    //flood fill all of the reachable vaoxels in the grid.
+    void simpleFloodFill( int x1, int x2, int y1, int y2, int z1, int z2 );
+
     //fills the grid by simple iterating over every point and checking
     //  for collision.
     void simplefill( size_t x1, size_t x2,

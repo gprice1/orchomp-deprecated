@@ -88,10 +88,8 @@ int mod::playback(std::ostream& sout, std::istream& sinput)
     }
     
     if (time > 10 || time < 0.00001 ){
-        time = 0.02;
+        time = 0.07;
     }
-
-    trajectory = chomper->xi;
 
     for ( int i = 0; i < trajectory.rows(); i ++ ){
 
@@ -208,6 +206,10 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
 
 int mod::addtsr(std::ostream& sout, std::istream& sinput){
     
+
+    OpenRAVE::EnvironmentMutex::scoped_lock
+                                    lockenv(environment->GetMutex());
+
     chomp::Transform::quat pose_0_w_rot, pose_w_e_rot;
     chomp::Transform::vec3 pose_0_w_trans, pose_w_e_trans;
     chomp::MatX bounds(6,2);
@@ -267,6 +269,17 @@ int mod::addtsr(std::ostream& sout, std::istream& sinput){
         }
 
     }
+
+    //TODO Make this less hacky.
+    for ( int i = 0; i < 3; i ++ ){
+        if ( bounds( i, 1) >= 1e10 ){
+            bounds( i, 1 ) = HUGE_VAL;
+        }
+        if ( bounds( i, 0) <= -1e10 ){
+            bounds( i, 0 ) = -HUGE_VAL;
+        }
+    }
+
     chomp::Transform pose_0_w(pose_0_w_rot, pose_0_w_trans);
     chomp::Transform pose_w_e(pose_w_e_rot, pose_w_e_trans);
 
@@ -280,7 +293,9 @@ int mod::addtsr(std::ostream& sout, std::istream& sinput){
 
 
 int mod::viewtsr(std::ostream & sout, std::istream& sinput){
-    
+     OpenRAVE::EnvironmentMutex::scoped_lock
+                                    lockenv(environment->GetMutex());
+
     size_t index = 0;
     if ( !sinput.eof() ){
         sinput >> index;
@@ -296,17 +311,25 @@ int mod::viewtsr(std::ostream & sout, std::istream& sinput){
                 tsrs[index]->_Bw(2,1) - tsrs[index]->_Bw(2,0) );
     OpenRAVE::Vector position( 0,0,0 );
 
+    debugStream << "Making cube" << std::endl;
     OpenRAVE::KinBodyPtr cube = createBox( position, size, color, 
                                             environment, 0.5 );
     
     chomp::Transform::quat rot = tsrs[index]->_pose_0_w.rotation();
     chomp::Transform::vec3 pos = tsrs[index]->_pose_0_w.translation();
 
-    OpenRAVE::Vector or_rot( rot[0], rot[1], rot[2] );
+    debugStream << "Setting OR positions" << std::endl;
+    OpenRAVE::Vector or_rot( rot[0], rot[1], rot[2] , rot[3]);
     OpenRAVE::Vector or_pos( pos[0], pos[1], pos[2] );
-
+    
+    
     OpenRAVE::Transform xform( or_rot, or_pos );
+    debugStream << "Setting xform" << std::endl;
     cube->SetTransform( xform );
+
+    debugStream << "Done" << std::endl;
+
+    return 1;
 }
 
 
@@ -323,7 +346,7 @@ int mod::viewspheresVec(const chomp::MatX & q,
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
 
 
-    robot->SetActiveDOFValues( vec );
+    robot->SetActiveDOFValues( vec, true );
 
     if ( !sphere_collider ) { getSpheres() ; }
     
@@ -577,7 +600,6 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     return 0;
 }
 
-int mod::viewtsr(std::ostream& sout, std::istream& sinput){
 
 
 int mod::iterate(std::ostream& sout, std::istream& sinput)
@@ -596,6 +618,8 @@ int mod::iterate(std::ostream& sout, std::istream& sinput)
 
     //solve chomp
     chomper->solve( info.doGlobal, info.doLocal );
+    
+    trajectory = chomper->xi;
 
     std::cout << "Done Iterating" << std::endl;
     return 0;

@@ -141,7 +141,8 @@ namespace chomp {
     //this takes in a state and it gets the jacobian 
     virtual void computeJacobian( const MatX& qt,
                                   const Transform & pose_world_ee,
-                                  MatX & jacobian
+                                  MatX & jacobian,
+                                  std::vector< int > & active_dims
                                   ) = 0;
 
 
