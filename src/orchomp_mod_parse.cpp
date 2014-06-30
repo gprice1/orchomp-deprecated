@@ -54,7 +54,16 @@ inline void mod::getRandomState( chomp::MatX & state ){
     }
 }
          
-        
+void parseTransform(std::istream& sinput, OpenRAVE::Transform & xform){
+    sinput >> xform.trans[0];
+    sinput >> xform.trans[1];
+    sinput >> xform.trans[2];
+    sinput >> xform.rot[0];
+    sinput >> xform.rot[1];
+    sinput >> xform.rot[2];
+}
+
+
 void mod::parsePoint( std::istream& sinput, chomp::MatX & point ){
     if ( active_indices.size() <= 0 ){
         RAVELOG_ERROR("n_dof must be set before states can be added" );
@@ -72,14 +81,14 @@ void mod::parsePoint( std::istream& sinput, chomp::MatX & point ){
 void mod::parseCreate(std::ostream & sout, std::istream& sinput)
 {
     
-   std::string cmd;
-   /* parse command line arguments */
-   while (!sinput.eof () ){
-      sinput >> cmd;
-      debugStream << "\t-ExecutingCommand: " << cmd << std::endl;
+    std::string cmd;
+    /* parse command line arguments */
+    while (!sinput.eof () ){
+        sinput >> cmd;
+        debugStream << "\t-ExecutingCommand: " << cmd << std::endl;
       
-      if (!sinput){ break; }
-      if (cmd == "loadrobot"){
+        if (!sinput){ break; }
+        if (cmd == "loadrobot"){
             std::string robot_location;
             sinput >> robot_location;
             debugStream << "Location: " << robot_location << std::endl;
@@ -88,60 +97,60 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
             }
             environment->Load( robot_location.c_str() );
             debugStream << "Done loading robot" << std::endl;
-      }
+        }
 
-      else if (cmd == "robot")
-      {
-         sinput >> robot_name;
+        else if (cmd == "robot")
+        {
+            sinput >> robot_name;
 
-         if (robot.get()) { 
-             throw OpenRAVE::openrave_exception(
+            if (robot.get()) { 
+                throw OpenRAVE::openrave_exception(
                         "Only one robot can be passed!");
-         }
-         robot = environment->GetRobot( robot_name.c_str() );
+            }
+            robot = environment->GetRobot( robot_name.c_str() );
 
-         if ( !robot.get() ){              
-             throw OpenRAVE::openrave_exception(
+            if ( !robot.get() ){              
+                throw OpenRAVE::openrave_exception(
                         "Failed to get robot");
-         }
-         active_indices = robot->GetActiveDOFIndices();
-         robot->GetActiveDOFLimits( lowerJointLimits, upperJointLimits);
-         n_dof = active_indices.size();
+            }
+            active_indices = robot->GetActiveDOFIndices();
+            robot->GetActiveDOFLimits( lowerJointLimits, upperJointLimits);
+            n_dof = active_indices.size();
          
-         std::cout << "Active Indices: " ;
-         for ( size_t i = 0; i < active_indices.size(); i ++ ){
-             std::cout << active_indices[i];
-         }
-         std::cout << std::endl;
+            std::cout << "Active Indices: " ;
+            for ( size_t i = 0; i < active_indices.size(); i ++ ){
+                std::cout << active_indices[i];
+            }
+            std::cout << std::endl;
 
 
-         if (!robot.get()) {
+            if (!robot.get()) {
                 throw OpenRAVE::openrave_exception(
                         "Robot name not valid");
-         }
-      }else if ( cmd == "activemanipindex" ){
-          int index;
-          sinput >> index;
+            }
+        }else if ( cmd == "activemanipindex" ){
+            int index;
+            sinput >> index;
 
-          if( robot.get() )
-          {
-              active_manip = robot->GetManipulators()[index];
-              robot->SetActiveManipulator( active_manip );
-              robot->SetActiveDOFs( active_manip->GetArmIndices() );
-              active_indices = robot->GetActiveDOFIndices();
-              robot->GetActiveDOFLimits(lowerJointLimits, upperJointLimits);
-              n_dof = active_indices.size();
-          }
-          else{ 
+            if( robot.get() )
+            {
+                active_manip = robot->GetManipulators()[index];
+                robot->SetActiveManipulator( active_manip );
+                robot->SetActiveDOFs( active_manip->GetArmIndices() );
+                active_indices = robot->GetActiveDOFIndices();
+                robot->GetActiveDOFLimits(lowerJointLimits, upperJointLimits);
+                n_dof = active_indices.size();
+            }
+            else{ 
                 throw OpenRAVE::openrave_exception(
                         "Robot name not valid");
-          }
-      }else if ( cmd == "activemanipname" ){
-          std::string name;
-          sinput >> name;
+            }
+        }else if ( cmd == "activemanipname" ){
+            std::string name;
+            sinput >> name;
 
-          if( robot.get() )
-          {
+            if( robot.get() )
+            {
               active_manip = robot->SetActiveManipulator( name );
               robot->SetActiveDOFs( active_manip->GetArmIndices() );
               active_indices = robot->GetActiveDOFIndices();
@@ -152,76 +161,94 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
                 throw OpenRAVE::openrave_exception(
                         "Robot name not valid");
           }
+        }else if (cmd == "startik" ){
+            OpenRAVE::Transform xform;
+            parseTransform( sinput, xform );
+            
+            std::vector< OpenRAVE::dReal > solution;
+            getIK( xform, solution );
+            
+            vectorToMat( solution, q0 );
+        }else if (cmd == "endik" ){
+            OpenRAVE::Transform xform;
+            parseTransform( sinput, xform );
+            
+            std::vector< OpenRAVE::dReal > solution;
+            getIK( xform, solution );
+            
+            vectorToMat( solution, q1 );
 
-      }else if (cmd =="obstol") {
+        }else if (cmd =="obstol") {
             sinput >> info.obstol;
-      }else if (cmd =="n") {
+        }else if (cmd =="n") {
             sinput >> info.n;
-      }else if (cmd =="n_max"){
+        }else if (cmd =="n_max"){
             sinput >> info.n_max;
-      }else if (cmd =="alpha") {
+        }else if (cmd =="alpha") {
             sinput >> info.alpha;
-      }else if ( cmd == "gamma"){
+        }else if ( cmd == "gamma"){
           sinput >> info.gamma;
-      }else if (cmd =="min_global_iter") {
+        }else if (cmd =="min_global_iter") {
             sinput >> info.min_global_iter;
-      }else if (cmd =="min_local_iter") {
+        }else if (cmd =="min_local_iter") {
             sinput >> info.min_local_iter;
-      }else if (cmd =="max_global_iter") {
+        }else if (cmd =="max_global_iter") {
             sinput >> info.max_global_iter;
-      }else if (cmd =="max_local_iter") {
+        }else if (cmd =="max_local_iter") {
             sinput >> info.max_local_iter;
-      }else if (cmd == "q0" ){
+        }else if (cmd == "q0" ){
             parsePoint( sinput, q0 );
-      }else if ( cmd == "q1" ){
+        }else if ( cmd == "q1" ){
             parsePoint( sinput, q1);
-      }else if ( cmd == "randomstart" ){
+        }else if ( cmd == "randomstart" ){
             getRandomState( q0 );
             debugStream << "\t\tRandom Start: " << q0 << std::endl;
-      }else if ( cmd == "randomend" ){
+        }else if ( cmd == "randomend" ){
             getRandomState( q1 );
             debugStream << "\t\tRandom end: " << q1 << std::endl;
-     }else if (cmd == "epsilon"){
-          sinput >> info.epsilon;
-     }else if (cmd == "epsilon_self"){
-          sinput >> info.epsilon_self;
-     }else if (cmd == "obs_factor"){
-          sinput >> info.obs_factor;
-     }else if (cmd == "obs_factor_self"){
-          sinput >> info.obs_factor_self;
-     }else if (cmd == "jointpadding"){
-          sinput >> info.jointPadding;
-     }
+        }else if (cmd == "epsilon"){
+            sinput >> info.epsilon;
+        }else if (cmd == "epsilon_self"){
+            sinput >> info.epsilon_self;
+        }else if (cmd == "obs_factor"){
+            sinput >> info.obs_factor;
+        }else if (cmd == "obs_factor_self"){
+            sinput >> info.obs_factor_self;
+        }else if (cmd == "jointpadding"){
+            sinput >> info.jointPadding;
+        }else if (cmd == "timeout"){
+            sinput >> info.timeout_seconds;
+        }
 
     
-      else if ( cmd == "dolocal"  ){ info.doLocal   = true;  }
-      else if ( cmd == "nolocal"  ){ info.doLocal   = false; }
-      else if ( cmd == "doglobal" ){ info.doGlobal  = true;  } 
-      else if ( cmd == "doobserve"){ info.doObserve = true;  }
-      else if ( cmd == "nofactory"){ info.noFactory = true;  }
-      else if ( cmd == "nocollider"){ info.noCollider = true;  }
-      else if ( cmd == "noselfcollision"){ info.noSelfCollision = true;  }
-      else if ( cmd == "noenvironmentalcollision"){
+        else if ( cmd == "dolocal"  ){ info.doLocal   = true;  }
+        else if ( cmd == "nolocal"  ){ info.doLocal   = false; }
+        else if ( cmd == "doglobal" ){ info.doGlobal  = true;  } 
+        else if ( cmd == "doobserve"){ info.doObserve = true;  }
+        else if ( cmd == "nofactory"){ info.noFactory = true;  }
+        else if ( cmd == "nocollider"){ info.noCollider = true;  }
+        else if ( cmd == "noselfcollision"){ info.noSelfCollision = true;  }
+        else if ( cmd == "noenvironmentalcollision"){
             info.noEnvironmentalCollision = true; 
-      }
+        }
 
-      //else if ( cmd =="noglobal") { info.doGlobal == false; }
+        //else if ( cmd =="noglobal") { info.doGlobal == false; }
 
-      //error case
-      else{ 
-          while ( !sinput.eof() ){
-              RAVELOG_ERROR("argument %s not known!\n", cmd.c_str() );
-              sinput >> cmd;
-          }
-          throw OpenRAVE::openrave_exception("Bad arguments!");
-      }
-   }
+        //error case
+        else{ 
+            while ( !sinput.eof() ){
+                RAVELOG_ERROR("argument %s not known!\n", cmd.c_str() );
+                sinput >> cmd;
+            }
+            throw OpenRAVE::openrave_exception("Bad arguments!");
+        }
+    }
 
-   if (size_t( q0.cols() )!= active_indices.size() ){
-       std::vector< OpenRAVE::dReal > values;
-       robot->GetDOFValues( values, active_indices );
-       vectorToMat( values, q0 );
-   }
+    if (size_t( q0.cols() )!= active_indices.size() ){
+        std::vector< OpenRAVE::dReal > values;
+        robot->GetDOFValues( values, active_indices );
+        vectorToMat( values, q0 );
+    }
 
 
    

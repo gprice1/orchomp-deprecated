@@ -13,6 +13,11 @@ def main():
     e.SetViewer( 'qtcoin' )
     e.Load( 'lab1.env.xml' );
 
+    # set the manipulator to leftarm
+    #ikmodel = databases.inversekinematics.InverseKinematicsModel(
+    #            robot,iktype=IkParameterization.Type.Transform6D)
+    #if not ikmodel.load():
+    #    ikmodel.autogenerate()
 
     Tz = r.matrixFromAxisAngle([0,0,numpy.pi/2])
     Tz[0,3] = 0.4  

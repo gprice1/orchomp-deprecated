@@ -31,41 +31,29 @@
 #ifndef _ORCHOMP_MOD_H_
 #define _ORCHOMP_MOD_H_
 
+
 #include "chomp-multigrid/chomp/Chomp.h"
 #include "orchomp_distancefield.h"
 #include "orchomp_constraint.h"
 #include "orchomp_kdata.h"
+#include "orchomp_collision.h"
+
 #include <openrave/openrave.h>
 #include <openrave/planningutils.h>
-#include <time.h>
 #include <stack>
 
-extern "C" {
-#include <gsl/gsl_rng.h>
-#include <gsl/gsl_randist.h>
-#include "utils/os.h"
-}
+#include "utils/timer.h"
+
 
 #define DEBUG_COUT 0
 #define debugStream \
     if (DEBUG_COUT) {} \
     else std::cout
 
-#define DEBUG_TIMING
-
-#ifdef DEBUG_TIMING
-#  define TIC() { struct timespec tic; struct timespec toc; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tic);
-#  define TOC(tsptr) clock_gettime(CLOCK_THREAD_CPUTIME_ID, &toc); CD_OS_TIMESPEC_SUB(&toc, &tic); CD_OS_TIMESPEC_ADD(tsptr, &toc); }
-#else
-#  define TIC()
-#  define TOC(tsptr)
-#endif
 
 
 namespace orchomp
 {
-class mod;
-
 //this is a structure used to hold and initialize values
 //  for an eventual call to chomp.
 class ChompInfo {
@@ -77,8 +65,21 @@ public:
     // t_total: the total amount of timesteps that
     //          N+1 timesteps will take            
     // gamma: how much the gradient term counts for.
+    // epsilon: how far outside of obstacles costs start accruing.
+    // epsilon_self: how far outside of the collision geometry
+    // obs_factor :  The percentage that environmental collisions count
+    //               towards total cost. Should be between 1 and 0.
+    //               NOTE: obs_factor + obs_factor_self = 1.0
+    //          self collision costs start accruing.
+    // obs_factor_self :  The percentage that self collisions count
+    //               towards total cost. Should be between 1 and 0.
+    //               NOTE: obs_factor + obs_factor_self = 1.0
+    // jointPadding : pads the joint limit values so that the constraints
+    //                start before the limits are exceeded. 
+    //                Must be a value between 0 and 1, however, it 
+    //                should be very low. (between 0.01 and 0).
     double alpha, obstol, t_total, gamma, epsilon, epsilon_self, obs_factor,
-           obs_factor_self, jointPadding;
+           obs_factor_self, jointPadding, timeout_seconds;
 
     //n: the initial size of the trajectory,
     //n_max: the final size,
@@ -95,8 +96,9 @@ public:
     //a basic constructor to initialize values
     ChompInfo() :
         alpha(0.1), obstol(0.01), t_total(1.0), gamma(0.1),
-        epsilon( 0.1 ), epsilon_self( 0.01 ), obs_factor( 200 ),
-        obs_factor_self( 5 ), jointPadding( 0.05 ),
+        epsilon( 0.1 ), epsilon_self( 0.01 ), obs_factor( 0.7 ),
+        obs_factor_self( 0.3 ), jointPadding( 0.001 ),
+        timeout_seconds( -1.0),
         n(0), n_max(0),
         min_global_iter( 0 ), max_global_iter( size_t(-1) ), 
         min_local_iter( 0 ), max_local_iter( size_t(-1)), doGlobal( true ),
@@ -104,76 +106,6 @@ public:
         noCollider( false ), noSelfCollision( false ),
         noEnvironmentalCollision( false )
         {}
-};
-
-
-class SphereCollisionHelper : public chomp::ChompCollisionHelper{
-public:
-    
-    // a pointer to the module for acces to stuff like the collision
-    //  geometry
-    mod * module;
-
-    //the first <active_spheres> amount of spheres in the 
-    // above vector are active.
-    int n_active;
-
-    /* obstacle parameters */
-    //environmental collisions
-    double epsilon;
-    double obs_factor;
-   
-    //self-collisions
-    double epsilon_self;
-    double obs_factor_self;
-    
-    //________________________Public Member Functions____________________//
-    
-    //the constuctor needs a pointer to the robot in addition to the spaces.
-    SphereCollisionHelper( size_t ncspace, size_t nwkspace, size_t nbodies, 
-                          mod * module) :
-            ChompCollisionHelper( ncspace, nwkspace, nbodies ), module(module),
-            epsilon( 0.1 ), obs_factor(200.0), epsilon_self( 0.01 ), 
-            obs_factor_self( 5.0 )
-    {
-    }
-
-    OpenRAVE::KinBodyPtr createCube( double cost,
-                                    double size,
-                                     OpenRAVE::EnvironmentBasePtr & env,
-                                    const OpenRAVE::Vector & pos
-                                         );
-    OpenRAVE::KinBodyPtr createCube( 
-                                 const OpenRAVE::Vector & color,
-                                 double size,
-                                 OpenRAVE::EnvironmentBasePtr & env,
-                                 const OpenRAVE::Vector & pos
-                                 );
-    void visualizeSDFSlice( size_t sdf_index, size_t axis,
-                            size_t slice_index, double time);
-
-    // q - the current configuration
-    // body_index - the index of the body to get the gradient, cost and jacobains
-    //              for.
-    // dx_dq - jacobain of workspace position
-    //         dims: nwkspace-by-ncspace
-    // cgrad - gradient (jacobian transpose of cost wrt workspace position
-    //         dims : ncspace-by-1
-    virtual double getCost(const chomp::MatX& q, size_t body_index,
-                           chomp::MatX& dx_dq,  chomp::MatX& cgrad); 
-
-private:
-
-    OpenRAVE::dReal getSDFCollisions( const Sphere & sphere,
-                                      const OpenRAVE::Vector & position, 
-                                      vec3 & gradient );
-    OpenRAVE::dReal getSelfCollisions( size_t body_index,
-                                       const Sphere & current_sphere,
-                                       const OpenRAVE::Vector & position, 
-                                       vec3 & gradient,
-                                       std::vector<OpenRAVE::dReal> & other);
-
-
 };
 
 
@@ -186,8 +118,6 @@ public:
     //____________________PUBLIC MEMBER VARIABLES____________________//
     OpenRAVE::EnvironmentBasePtr environment; /* filled on module creation */
  
-    // NOTE : Most of the below variables were in the run structure.
-
     //the trajectory, start, and endpoint.
     chomp::MatX trajectory, q0, q1;
     ORConstraintFactory * factory;
@@ -200,14 +130,15 @@ public:
     chomp::DebugChompObserver observer;
 
     //these are useful for interfacing with the robot.
-    OpenRAVE::RobotBasePtr robot;
-    std::string robot_name;
-
+    OpenRAVE::RobotBasePtr robot;      // a pointer to the robot
+    std::string robot_name;            // the name of the robot
+    std::vector< int > active_indices; // the active indices of the robot
+    size_t n_dof;                      // the degree of freedom of the bot.
+ 
+    //holds the active manipulator of the robot. this is used for
+    //  TSR constraints.
     OpenRAVE::RobotBase::ManipulatorPtr active_manip;
-
-    OpenRAVE::KinBodyPtr kinbody;
-    std::vector< int > active_indices;
-    size_t n_dof;
+    
 
     //a vector containing the collision geometry
     std::vector< Sphere > active_spheres, inactive_spheres;
@@ -224,15 +155,25 @@ public:
     //This vector holds all of the sdf's.
     std::vector< DistanceField > sdfs;
     
+    //this vector holds all of the TSR's 
     std::vector< ORTSRConstraint * > tsrs;
+    
+    //this is a timer for timing things.
+    Timer timer;
 
     //this is a pointer to the chomp class that will pull most of the
-    //   weight.
+    //   weight for the module.
     chomp::Chomp * chomper;
     
+    //a pointer to an openrave trajectory, a call to gettraj, will fill
+    //  this structure with the current chomp trajectory.
     OpenRAVE::TrajectoryBasePtr trajectory_ptr;
 
+
     //_______________________PUBLIC MEMBER FUNCTIONS___________________//
+
+    ///////////////The following functions are in orchomp_mod.cpp
+
     //visualize the collision geometry 
     int viewspheres(std::ostream & sout, std::istream& sinput);
 
@@ -240,12 +181,13 @@ public:
     //   descending the gradient out of collision
     int computedistancefield(std::ostream & sout, std::istream& sinput);
     
+    //visualize a slice out of a signed distance field.
     int visualizeslice(std::ostream& sout, std::istream& sinput);
 
     // NOTE : Find out what this is supposed to do
     int addfield_fromobsarray(std::ostream & sout, std::istream& sinput);
 
-    //
+    //create a chomp run, to prepare for running chomp.
     int create(std::ostream & sout, std::istream& sinput);
 
     //GO through one iteration of chomp
@@ -266,8 +208,14 @@ public:
     //add a tsr to the factory
     int addtsr(std::ostream & sout, std::istream& sinput);
     
+    //creates a box in the environment to visualize a given TSR.
     int viewtsr(std::ostream & sout, std::istream& sinput);
     
+    //Remove a constraint from the list of constraints 
+    int removeconstraint(std::ostream & sout, std::istream& sinput);
+    
+    //view the collision geometry of the robot at a given robot
+    //  configuration
     int viewspheresVec( const chomp::MatX & q,
                         const std::vector< OpenRAVE::dReal > & vec,
                         double time);
@@ -285,6 +233,11 @@ public:
        { RAVELOG_INFO("module init cmd: %s\n", cmd.c_str()); return 0; }
 
 
+  
+  ////////////////////////////////////////////////////////////////////
+  ////// these functions can be found in orchomp_mod_parse ///////////
+  ////////////////////////////////////////////////////////////////////
+  private: 
     // this is all helper code for the parsing.
     // The source code for these functions is in orchomp_mod_parse.cpp, 
     //      not the same file that contains many of the other functions.
@@ -300,27 +253,36 @@ public:
     void parsePoint( std::istream & sinput, chomp::MatX & point);
     void parseExecute( std::ostream & sout , std::istream & sinput );
 
-    // A small helper function for creating a straight line trajectory between
-    //  two endpoints:
-    inline void createInitialTrajectory();
+public:
+    // A small helper function for creating a straight
+    //  line trajectory between two endpoints:
+    void createInitialTrajectory();
     //get the ith state in the trajectory matrix and turn it into an openrave
     //  state vector.
-    inline void getIthStateAsVector( size_t i,
+    void getIthStateAsVector( size_t i,
                 std::vector< OpenRAVE::dReal > & state  );
     //get a state matrix, and turn it into an openrave state vector
-    inline void getStateAsVector( const chomp::MatX & state,
+    void getStateAsVector( const chomp::MatX & state,
                 std::vector< OpenRAVE::dReal > & vec  );
     //get a random state that is within the robot's joint limits
-    inline void getRandomState( chomp::MatX & vec );
+    void getRandomState( chomp::MatX & vec );
+
+    //turn an OpenRAVE::Vector to a chomp::MatX.
+    void vectorToMat(const std::vector< OpenRAVE::dReal > & vec,
+                             chomp::MatX & mat );
+
     //take a state matrix, and if any of the values exceed the joint limits,
     //  then clamp that value to the nearest joint limit
-    inline void clampToLimits( chomp::MatX & state);
+    void clampToLimits( chomp::MatX & state);
     //returns true if the given state matrix is within the joint limits
     bool isWithinLimits( const chomp::MatX & mat ) const;
     bool isWithinPaddedLimits( const chomp::MatX & mat ) const;
     //Take a state matrix, and set the robot's active DOF values
-    inline void setActiveDOFValues( const chomp::MatX & qt );
-    
+    void setActiveDOFValues( const chomp::MatX & qt );
+    //get the ik for the currently active end effector for the transform
+    void getIK( const OpenRAVE::Transform & xform, 
+                     std::vector< OpenRAVE::dReal > & solution );
+
     //Get the collision geometry from the XML files
     void getSpheres();
 
@@ -330,98 +292,18 @@ public:
     //  joint limits. Print out the status of each point.
     void isTrajectoryWithinLimits() const;
     
+    OpenRAVE::KinBodyPtr createBox( 
+                                const OpenRAVE::Vector & pos,
+                                const OpenRAVE::Vector & extents,
+                                const OpenRAVE::Vector & color,
+                                float transparency = 0);
+
     //Returns true if two joints are adjacent
     bool areAdjacent( int first, int second ) const ;
-
+    
 
 };
 
-
-
-inline void vectorToMat(const std::vector< OpenRAVE::dReal > & vec,
-                             chomp::MatX & mat )
-{
-    assert( vec.size() > 0 );
-    mat.resize(1, vec.size() );
-
-    for ( size_t i = 0; i < vec.size() ; i ++ ){ mat(i) = vec[i]; }
-}
-
-
-inline void mod::getStateAsVector( const chomp::MatX & state,
-                                   std::vector< OpenRAVE::dReal > & vec ){
-
-    vec.resize( n_dof );
-    assert( state.size() == int( n_dof ) );
-    
-    for ( size_t i = 0; i < n_dof; i ++ ){
-        vec[i] = state(i);
-    }
-}
-
-
-inline void mod::getIthStateAsVector( size_t i, 
-                      std::vector< OpenRAVE::dReal > & state )
-{
-    
-    const int width = trajectory.cols();
-    state.resize( width );
-
-    for ( int j = 0; j < width; j ++ ){
-        state[j] = trajectory(i, j );
-    }
-
-}
-
-inline void mod::setActiveDOFValues( const chomp::MatX & qt ){
-
-    std::vector< OpenRAVE::dReal > vec;
-    getStateAsVector( qt, vec );
-
-    robot->SetActiveDOFValues( vec );
-}
-
-
-
-inline OpenRAVE::KinBodyPtr createBox( const OpenRAVE::Vector & pos,
-                                const OpenRAVE::Vector & extents,
-                                const OpenRAVE::Vector & color,
-                                OpenRAVE::EnvironmentBasePtr & env,
-                                float transparency = 0)
-{
-
-    //create a cube to be used for collision detection in the world.
-    //  create an object and name that object 'cube'
-    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( env);
-    
-    std::stringstream ss;
-    ss   << pos[0] << "_"
-         << pos[1] << "_"
-         << pos[2] ; 
-
-    const std::string name = ss.str();
-
-    if( env->GetKinBody( name.c_str() ).get() ){return cube; }
-    cube->SetName( name.c_str() );
-
-    //set the dimensions of the cube object
-    std::vector< OpenRAVE::AABB > vaabbs(1);
-
-    /* extents = half side lengths */
-    vaabbs[0].extents = extents;
-    vaabbs[0].pos = pos;
-    cube->InitFromBoxes(vaabbs, true);
-    
-    //add the cube to the environment
-    env->Add( cube );
-
-    cube->GetLinks()[0]->GetGeometries()[0]->SetAmbientColor( color );
-    cube->GetLinks()[0]->GetGeometries()[0]->SetDiffuseColor( color );
-    cube->GetLinks()[0]->GetGeometries()[0]->SetTransparency(transparency);
-    
-    return cube;
-
-}
 
 
 } /* namespace orchomp */

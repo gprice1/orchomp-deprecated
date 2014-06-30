@@ -64,7 +64,7 @@ void ORTSRConstraint::forwardKinematics( const chomp::MatX& qt,
                                          chomp::Transform & pos )
 {
 
-    module->setActiveDOFValues( qt );
+    module->setActiveDOFValues( qt);
     OpenRAVE::Transform t = module->robot->GetActiveManipulator()
                                  ->GetEndEffectorTransform();
 
@@ -85,48 +85,35 @@ void ORTSRConstraint::computeJacobian(
 
 
     //make sure that there are constrained dimensions, if not, return
-    if ( _dimension_id.size() <= 0 ){ return; }
+    if ( active_dims.size() <= 0 ){ return; }
     
     //get the degrees of freedom
     const int DOF = qt.size();
     
     //get the index of the currently active manipulator
-    const int ee_link_index = module->robot->GetActiveManipulator()
-                              ->GetEndEffector()->GetIndex();
-    
+    const int ee_link_index = module->active_manip
+                                    ->GetEndEffector()->GetIndex();
+    OpenRAVE::Transform t = module->active_manip->GetTransform();
     std::vector< OpenRAVE::dReal > translationJacobian;
     std::vector< OpenRAVE::dReal > rotationJacobian;
 
-    //check if we should do rotation or translation jacobians
-    _getRotationJacobian = false;
-    _getTranslationJacobian = false;
-
+    //get the jacobians 
     for ( size_t i = 0; i < active_dims.size(); i++ ){
-        if ( active_dims[i] >= 3 ){
-            _getRotationJacobian = true;
+        if ( active_dims[i] < 3 && translationJacobian.size() == 0){
+            module->robot->CalculateActiveJacobian( ee_link_index,
+                                                t.trans,
+                                                translationJacobian);
+
+            assert( translationJacobian.size() == size_t( DOF * 3 ));
         }
-        if ( active_dims[i] < 3 ){
-            _getTranslationJacobian = true;
+        else if ( active_dims[i] >= 3 && rotationJacobian.size() == 0 ){
+            module->robot->CalculateActiveRotationJacobian( ee_link_index,
+                                                t.rot,
+                                                rotationJacobian);
+            assert( rotationJacobian.size() == size_t( DOF * 3 ) );
         }
     }
     
-    const OpenRAVE::Transform t = module->active_manip
-                                        ->GetEndEffectorTransform();
-
-    //get the jacobians if we need them
-    if ( _getTranslationJacobian ){
-        module->robot->CalculateActiveJacobian( ee_link_index,
-                                                       t.trans,
-                                                       translationJacobian);
-        assert( translationJacobian.size() == size_t( DOF * 3 ));
-    }
-    if ( _getRotationJacobian ){
-        module->robot->CalculateActiveRotationJacobian( ee_link_index,
-                                          t.rot,
-                                          rotationJacobian);
-        assert( rotationJacobian.size() == size_t( DOF * 3 ) );
-    }
-
     //copy the jacobian data into the jacobian matrix
     for ( size_t i = 0; i < active_dims.size(); i ++ ){
 
@@ -142,8 +129,7 @@ void ORTSRConstraint::computeJacobian(
                 jacobian(i, k) = translationJacobian[ j * DOF + k ];
             }
             else {
-                assert( size_t( (j-3) * DOF + k ) <
-                        rotationJacobian.size());
+                assert( size_t((j-3) * DOF + k) < rotationJacobian.size());
                 jacobian(i, k) = rotationJacobian[ (j-3) * DOF + k ];
             }
         }
@@ -216,20 +202,30 @@ void ORConstraintFactory::addConstraint( chomp::Constraint * c,
     constraints.push_back( c );
 }
 
+void ORConstraintFactory::removeConstraint( size_t index )
+{
+    times.erase( times.begin() + index );
+
+    delete constraints[index];
+    constraints.erase( constraints.begin() + index );
+
+}
+
+
 
 chomp::Constraint* ORConstraintFactory::getConstraint(size_t t, 
                                                       size_t total){
-    
+
     UnifiedConstraint * unified = new UnifiedConstraint();
 
     const double time = double(t) / double( total );
-    for ( size_t i = 0; i < times.size(); i ++ ){
 
+    for ( size_t i = 0; i < times.size(); i ++ ){
+        
         //if the timestep is within the time bounds,
         //  then add the constraint to the unified constraint.
         if ( times[i].first < time && times[i].second > time ){
             unified->addConstraint( constraints[i] );
-        
         }
     }
 

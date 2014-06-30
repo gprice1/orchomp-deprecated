@@ -5,6 +5,7 @@
 #include "chomp-multigrid/mzcommon/DtGrid.h"
 #include <openrave/openrave.h>
 #include <openrave/planningutils.h>
+#include "utils/timer.h"
 
 namespace orchomp{
 
@@ -47,7 +48,7 @@ class DistanceField{
     } Bound;
 
 public:
-    
+     
     //the kinematic body that the Distance field branches from.
     OpenRAVE::KinBodyPtr kinbody;
 
@@ -88,21 +89,9 @@ public:
     
     int splitting_threshold;
 
-    struct timespec kd_tic;
-    struct timespec kd_toc;
-    double kd_total;
-
-    struct timespec oct_tic;
-    struct timespec oct_toc;
-    double oct_total;
-    
-    struct timespec col_tic;
-    struct timespec col_toc;
-    double collision_total;
-
 private:
 
-
+    Timer timer;
 
     //various collision routines.
     virtual inline bool isCollided( OpenRAVE::KinBodyPtr cube,

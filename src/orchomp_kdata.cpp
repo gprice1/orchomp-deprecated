@@ -82,10 +82,10 @@ kdata_parser::startElement(const std::string& name,
          }else if (itatt->first=="radius"){
             current_sphere.radius = strtod(itatt->second.c_str(), 0);
          }else if (itatt->first=="pos"){
+            double pose[3];
             sscanf(itatt->second.c_str(), "%lf %lf %lf",    
-                   &current_sphere.pose[0],
-                   &current_sphere.pose[1],
-                   &current_sphere.pose[2] );
+                   &pose[0], &pose[1], &pose[2] );
+            current_sphere.position = OpenRAVE::Vector( pose );
          }else{
             RAVELOG_ERROR("unknown attribute %s=%s!\n",
                             itatt->first.c_str(),itatt->second.c_str());

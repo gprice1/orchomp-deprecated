@@ -40,8 +40,14 @@ bool areEqual( DtGrid & first, DtGrid & second ){
 inline bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
                               const OpenRAVE::Transform & world_to_cube ){
 
+    timer.start( "collision" );
     cube->SetTransform( world_to_cube );
-    return environment->CheckCollision( cube, kinbody ); 
+
+    bool collision = environment->CheckCollision( cube, kinbody );
+
+    timer.stop( "collision" );
+
+    return collision;
 }
 
 bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube, 
@@ -49,10 +55,6 @@ bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
                                             int y1, int y2,
                                             int z1, int z2 )
 {
-
-    /* start timing voxel grid computation */
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &col_tic);
-
 
     const int xdist = x2-x1;
     const int ydist = y2-y1;
@@ -69,9 +71,6 @@ bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
 
     bool returnval =  isCollided( cube, world_to_cube );
 
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &col_toc);
-    CD_OS_TIMESPEC_SUB(&col_toc, &col_tic);
-    collision_total += CD_OS_TIMESPEC_DOUBLE(&col_toc);
 
     return returnval;
 }
@@ -81,7 +80,6 @@ bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
 {
     
     
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &col_tic);
 
     OpenRAVE::Transform pose_grid_cube; 
     pose_grid_cube.trans[0] = cube_extent + x*cube_length;
@@ -90,11 +88,9 @@ bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
 
 
     OpenRAVE::Transform world_to_cube = pose_world_grid * pose_grid_cube;
+ 
     bool retval = isCollided( cube, world_to_cube );
 
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &col_toc);
-    CD_OS_TIMESPEC_SUB(&col_toc, &col_tic);
-    collision_total += CD_OS_TIMESPEC_DOUBLE(&col_toc);
 
     return retval;
 }
@@ -231,79 +227,43 @@ void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & env )
 
     RAVELOG_INFO("computing occupancy grid ...\n");
     
-    struct timespec ticks_tic;
-    struct timespec ticks_toc;
-
-    /* start timing voxel grid computation */
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
-
-
-    kd_total = 0;
-    oct_total = 0;
-    double time_length;
-
-
+    timer.start( "fill" );
     //fill the grid utilizing various methods.
     simplefill(start, end[0], start, end[1], start, end[2] );
 
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
-    CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
-    time_length = CD_OS_TIMESPEC_DOUBLE(&ticks_toc);
+    RAVELOG_INFO("Time to compute SimpleFill(): %f\n" , 
+                 timer.stop( "fill" ) );
 
-    std::cout << "Time to compute SimpleFill(): " << time_length
-              << std::endl;
-    
-    collision_total = 0;
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
+    RAVELOG_INFO("Time to compute collisions for SimpleFill(): %f\n" , 
+                 timer.reset( "collision" ) );
+
+
+    timer.start( "fill" );
     
     octreefill( start, end[0], start, end[1], start, end[2] );
     
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
-    CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
-    time_length = CD_OS_TIMESPEC_DOUBLE(&ticks_toc);
+    RAVELOG_INFO("Time to compute octreeFill(): %f\n" , 
+                 timer.stop( "fill" ) );
 
-    std::cout << "Time to compute OcTreeFill(): " << time_length 
-              << "\nCollision Time: " << collision_total << std::endl;
+    RAVELOG_INFO("Time to compute collisions for OctreeFill(): %f\n" , 
+                 timer.reset( "collision" ) );
 
-
-    collision_total = 0;
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
-
+    
+    timer.start( "fill" );
+    
     Bound b(  start, end[0], start, end[1], start, end[2],
              end[0] - start, end[1] - start, end[2] - start );
     kdtreefill( b, XAXIS ); 
     
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
-    CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
-    time_length = CD_OS_TIMESPEC_DOUBLE(&ticks_toc);
+    RAVELOG_INFO("Time to compute KdtreeFill(): %f\n" , 
+                 timer.stop( "fill" ) );
 
-    std::cout << "Time to compute KDTreeFill(): " << time_length 
-              << "\nCollision Time: " << collision_total << std::endl;
+    RAVELOG_INFO("Time to compute collisions for KdtreeFill(): %f\n" , 
+                 timer.reset( "collision" ) );
 
-    
-    std::cout << "Oct time adding cubes: " << oct_total << std::endl;
-    std::cout << "kd time adding cubes: " << kd_total << std::endl;
-    
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
+
     
     simpleFloodFill( 0, grid.nx(), 0, grid.ny(), 0, grid.nz() );
-    /*
-    simpleFloodFill( start-1, end[0]+1, 
-                     start-1, end[1]+1,
-                     start-1, end[2]+1 );
-    */
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
-    CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
-    time_length = CD_OS_TIMESPEC_DOUBLE(&ticks_toc);
-    std::cout << "Flood fill time: " << time_length <<std::endl;
-
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
-    grid.computeDistsFromBinary();
-    
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
-    CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
-    time_length = CD_OS_TIMESPEC_DOUBLE(&ticks_toc);
-    std::cout << "Dist computation time: " << time_length <<std::endl;
 
     //delete the cube , because we don't need this anymore
     environment->Remove( unitCube );
@@ -492,10 +452,14 @@ void DistanceField::simplefill(size_t x1, size_t x2,
         OpenRAVE::Transform world_to_cube;
         getCenterFromIndex( i, j, k , world_to_cube);
 
+        timer.start( "collision" );
         unitCube->SetTransform( world_to_cube );
-        
         //check for collisions on the cube at the given transform
-        if ( environment->CheckCollision( unitCube, kinbody )){
+        bool collision =  environment->CheckCollision( unitCube, kinbody );
+        timer.stop( "collision" );
+
+
+        if (collision ){
             //If there is a collision, set the value to 1
             grid(i,j,k) = COLLISION;
             
@@ -553,16 +517,12 @@ void DistanceField::octreefill( int x1, int x2, int y1, int y2, int z1, int z2 )
     
 
     //check all of the squares:
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &oct_tic);
 
     OpenRAVE::KinBodyPtr cube = createCube( new_xdist,
                                             new_ydist,
                                             new_zdist);
 
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &oct_toc);
 
-    CD_OS_TIMESPEC_SUB(&oct_toc, &oct_tic);
-    oct_total += CD_OS_TIMESPEC_DOUBLE(&oct_toc);
 
     //check for collision in each of the 8 different spaces
 
@@ -636,15 +596,10 @@ void DistanceField::octreefill( int x1, int x2, int y1, int y2, int z1, int z2 )
         }
     }
    
-    //check all of the squares:
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &oct_tic);
+
 
     environment->Remove( cube );
 
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &oct_toc);
-
-    CD_OS_TIMESPEC_SUB(&oct_toc, &oct_tic);
-    oct_total += CD_OS_TIMESPEC_DOUBLE(&oct_toc);
 }
 
 
@@ -690,17 +645,11 @@ void DistanceField::kdtreefill( Bound b, int AXIS){
     
     assert( midpoint < b.bounds[AXIS*2+1] );
 
-    //check all of the squares:
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &kd_tic);
-
     OpenRAVE::KinBodyPtr cube = createCube( b.dists[0],
                                             b.dists[1],
                                             b.dists[2] );
 
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &kd_toc);
 
-    CD_OS_TIMESPEC_SUB(&kd_toc, &kd_tic);
-    kd_total += CD_OS_TIMESPEC_DOUBLE(&kd_toc);
 
 
     /////////////Check the top half////////////////////////////////

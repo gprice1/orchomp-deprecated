@@ -26,82 +26,10 @@
 #include "orchomp_mod.h"
 #include "orchomp_kdata.h"
 
-
-
-
 namespace orchomp
 {
 
-bool mod::isWithinPaddedLimits( const chomp::MatX & mat ) const{
-    assert( upperJointLimits.size() > 0 );
-    assert( lowerJointLimits.size() > 0 );
-    assert( mat.cols() > 0 );
 
-    for ( int i = 0; i < mat.cols(); i ++ ){
-        if ( mat(i) > paddedUpperJointLimits[i] ||
-             mat(i) < paddedLowerJointLimits[i] ){
-            return false;
-        }
-    }
-    return true;
-}
-bool mod::isWithinLimits( const chomp::MatX & mat ) const{
-    assert( upperJointLimits.size() > 0 );
-    assert( lowerJointLimits.size() > 0 );
-    assert( mat.cols() > 0 );
-
-    for ( int i = 0; i < mat.cols(); i ++ ){
-        if ( mat(i) > upperJointLimits[i] ||
-             mat(i) < lowerJointLimits[i] ){
-            return false;
-        }
-    }
-    return true;
-}
-
-void mod::coutTrajectory() const
-{
-    for ( int i = 0; i < trajectory.rows(); i ++ ){
-
-
-        for ( int j = 0; j < trajectory.cols() ; j ++ ){
-
-            std::cout << trajectory( i, j ) << "\t";
-        }
-        std::cout << "\n";
-    }
-}
-void mod::isTrajectoryWithinLimits() const {
-    for( int i = 0; i < trajectory.rows(); i ++ ){
-        chomp::MatX test = trajectory.row(i);
-        assert( isWithinLimits( test ) );
-        //debugStream << "Point " << i << " is within limits" << std::endl;
-    }
-}
-
-int mod::playback(std::ostream& sout, std::istream& sinput)
-{
-    
-    double time = -1;
-    if ( !sinput.eof() ){
-        sinput >> time;
-    }
-    
-    if (time > 10 || time < 0.00001 ){
-        time = 0.07;
-    }
-
-    for ( int i = 0; i < trajectory.rows(); i ++ ){
-
-        std::vector< OpenRAVE::dReal > vec;
-        getStateAsVector( trajectory.row(i), vec );
-        
-        viewspheresVec( trajectory.row(i), vec, time );
-
-    }
-
-    return 0;
-}
 //constructor that registers all of the commands to the openRave
 //   command line interface.
 mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
@@ -143,6 +71,9 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
        RegisterCommand("addtsr",
             boost::bind(&mod::addtsr,this,_1,_2),
             "playback a trajectory on a robot");
+       RegisterCommand("removeconstraint",
+            boost::bind(&mod::removeconstraint,this,_1,_2),
+            "remove a tsr constraint");
        RegisterCommand("viewtsr",
             boost::bind(&mod::viewtsr,this,_1,_2),
             "playback a trajectory on a robot");
@@ -152,6 +83,30 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
  * module commands
  */
 
+
+int mod::playback(std::ostream& sout, std::istream& sinput)
+{
+    
+    double time = -1;
+    if ( !sinput.eof() ){
+        sinput >> time;
+    }
+    
+    if (time > 10 || time < 0.00001 ){
+        time = 0.07;
+    }
+
+    for ( int i = 0; i < trajectory.rows(); i ++ ){
+
+        std::vector< OpenRAVE::dReal > vec;
+        getStateAsVector( trajectory.row(i), vec );
+        
+        viewspheresVec( trajectory.row(i), vec, time );
+
+    }
+
+    return 0;
+}
 //view the collision geometry.
 int mod::viewspheres(std::ostream& sout, std::istream& sinput)
 {
@@ -189,7 +144,7 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
         //get the position of the sphere in the world 
         OpenRAVE::Transform t = 
                 sphere.body->GetLink(sphere.linkname)->GetTransform();
-        OpenRAVE::Vector v = t * OpenRAVE::Vector(sphere.pose);
+        OpenRAVE::Vector v = t * sphere.position;
         
         //set the radius of the sphere
         v.w = sphere.radius; 
@@ -201,6 +156,28 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
         environment->Add( sbody );
     }
     return 0;
+}
+
+
+int mod::removeconstraint(std::ostream& sout, std::istream& sinput){
+
+    size_t index = 0;
+
+    if ( !sinput.eof() ){
+        sinput >> index;
+    }
+
+    //if a factory exists, remove the constraint
+    if ( factory ){
+        factory->removeConstraint( index );
+    }
+
+    else {
+        std::cout << "There is no factory, so removal cannot happen" <<
+                  std::endl;
+    }
+
+    return 1;
 }
 
 
@@ -219,20 +196,22 @@ int mod::addtsr(std::ostream& sout, std::istream& sinput){
         std::string cmd;
         sinput >> cmd;
         if ( cmd == "pose_0_w" ){
-            sinput >> pose_0_w_rot[0];
-            sinput >> pose_0_w_rot[1];
-            sinput >> pose_0_w_rot[2];
             sinput >> pose_0_w_trans[0];
             sinput >> pose_0_w_trans[1];
             sinput >> pose_0_w_trans[2];
+            sinput >> pose_0_w_rot[0];
+            sinput >> pose_0_w_rot[1];
+            sinput >> pose_0_w_rot[2];
+
         }
         else if ( cmd == "pose_w_e" ){
-            sinput >> pose_w_e_rot[0];
-            sinput >> pose_w_e_rot[1];
-            sinput >> pose_w_e_rot[2];
             sinput >> pose_w_e_trans[0];
             sinput >> pose_w_e_trans[1];
             sinput >> pose_w_e_trans[2];
+
+            sinput >> pose_w_e_rot[0];
+            sinput >> pose_w_e_rot[1];
+            sinput >> pose_w_e_rot[2];
         }
         else if ( cmd == "bounds" ){
             sinput >> bounds( 0, 0); sinput >> bounds( 0, 1);
@@ -312,18 +291,22 @@ int mod::viewtsr(std::ostream & sout, std::istream& sinput){
     OpenRAVE::Vector position( 0,0,0 );
 
     debugStream << "Making cube" << std::endl;
-    OpenRAVE::KinBodyPtr cube = createBox( position, size, color, 
-                                            environment, 0.5 );
+    OpenRAVE::KinBodyPtr cube = createBox( position, size, color, 0.5 );
     
     chomp::Transform::quat rot = tsrs[index]->_pose_0_w.rotation();
     chomp::Transform::vec3 pos = tsrs[index]->_pose_0_w.translation();
 
-    debugStream << "Setting OR positions" << std::endl;
-    OpenRAVE::Vector or_rot( rot[0], rot[1], rot[2] , rot[3]);
+    debugStream << "Setting OR positions" <<
+                "\trot: " << rot << "\tpos: " << pos << std::endl;
+    OpenRAVE::Vector or_rot( rot[0], rot[1], rot[2], rot[3]);
     OpenRAVE::Vector or_pos( pos[0], pos[1], pos[2] );
     
-    
+    debugStream << "Making Transform" << std::endl;
+    debugStream << "OR displacements: "  <<
+                "\trot: " << or_rot << "\tpos: " << or_pos << std::endl;
+
     OpenRAVE::Transform xform( or_rot, or_pos );
+
     debugStream << "Setting xform" << std::endl;
     cube->SetTransform( xform );
 
@@ -348,7 +331,11 @@ int mod::viewspheresVec(const chomp::MatX & q,
 
     robot->SetActiveDOFValues( vec, true );
 
-    if ( !sphere_collider ) { getSpheres() ; }
+    if ( !sphere_collider ) { 
+        std::cout << "There is no sphere collider, so viewing the" 
+                  << " spheres is impossible" << std::endl;
+        return 0;
+    }
     
     char text_buf[1024];
     
@@ -384,7 +371,7 @@ int mod::viewspheresVec(const chomp::MatX & q,
         //get the position of the sphere in the world 
         OpenRAVE::Transform t =  current_sphere.body->GetLink(
                                  current_sphere.linkname)->GetTransform();
-        OpenRAVE::Vector position = t * OpenRAVE::Vector(current_sphere.pose);
+        OpenRAVE::Vector position = t * current_sphere.position;
         
         //set the radius of the sphere
         position.w = current_sphere.radius *
@@ -539,13 +526,8 @@ int mod::create(std::ostream& sout, std::istream& sinput)
         paddedLowerJointLimits[i] = lowerJointLimits[i] + interval;
     }
 
-    //TODO remove the clamp to limits thing.
-    clampToLimits(q0);
-    clampToLimits(q1);
-
-    assert( isWithinPaddedLimits( q0 ) );
-    assert( isWithinPaddedLimits( q1 ) );
-
+    assert( isWithinLimits( q0 ) );
+    assert( isWithinLimits( q1 ) );
 
     if ( !info.noFactory ){
         factory = new ORConstraintFactory( this );
@@ -556,7 +538,7 @@ int mod::create(std::ostream& sout, std::istream& sinput)
                                 info.alpha, info.obstol,
                                 info.max_global_iter,
                                 info.max_local_iter,
-                                info.t_total);
+                                info.t_total, info.timeout_seconds);
     
     chomper->min_global_iter = info.min_global_iter;
     chomper->min_local_iter = info.min_local_iter;
@@ -615,10 +597,14 @@ int mod::iterate(std::ostream& sout, std::istream& sinput)
     if (!robot.get() ){
         robot = environment->GetRobot( robot_name.c_str() );
     }
-
+    
+    timer.start( "CHOMP run" );
     //solve chomp
     chomper->solve( info.doGlobal, info.doLocal );
     
+    timer.stop( "CHOMP run" );
+    timer.coutElapsed( "CHOMP run");
+
     trajectory = chomper->xi;
 
     std::cout << "Done Iterating" << std::endl;
@@ -773,19 +759,8 @@ inline void mod::createInitialTrajectory()
     }
 }
 
-inline void mod::clampToLimits( chomp::MatX & state ){
-    for ( int i = 0; i < state.cols() ; i ++ ){
-        if ( state(i) > paddedUpperJointLimits[i] ){
-            state(i) = paddedUpperJointLimits[i];
-        }
-        else if ( state(i) < paddedLowerJointLimits[i] ){
-            state(i) = paddedLowerJointLimits[i];
-        }
-    }
-}
 
-
-
+//get the spheres for collision detection
 void mod::getSpheres()
 {
     
@@ -810,9 +785,7 @@ void mod::getSpheres()
          
         //bail if there is no orcdchomp data.
         if (data_reader.get() == NULL ) {
-            debugStream << "Failed to get: " << body->GetName() << std::endl;
-            continue;
-
+            debugStream <<"Failed to get: " << body->GetName() << std::endl;
             throw OpenRAVE::openrave_exception(
                 "kinbody does not have a <orcdchomp> tag defined!");
         }
@@ -827,7 +800,8 @@ void mod::getSpheres()
             /* what robot link is this sphere attached to? */
             if (body.get() == robot.get()){
                 
-                //TODO THIS IS AN OUTRAGEOUS HACK PLEASE make it not necessary
+                //TODO THIS IS AN OUTRAGEOUS HACK
+                //  PLEASE make it not necessary
                 if ( sphere.linkname == "/right/wam0" ){
                     sphere.linkname = "/right/wam2";
                 }else if ( sphere.linkname == "/left/wam0" ){
@@ -851,6 +825,7 @@ void mod::getSpheres()
             sphere.linkindex = sphere.link->GetIndex();
             
             //if the body is not the robot, then get the transform
+            //TODO find out if this is necessary or useful??
             if ( body.get() != robot.get() )
             {
                 OpenRAVE::Transform T_w_klink = 
@@ -858,10 +833,10 @@ void mod::getSpheres()
                 OpenRAVE::Transform T_w_rlink = sphere.link->GetTransform();
                 OpenRAVE::Vector v = T_w_rlink.inverse()
                                      * T_w_klink 
-                                     * OpenRAVE::Vector(sphere.pose);
-                sphere.pose[0] = v.x;
-                sphere.pose[1] = v.y;
-                sphere.pose[2] = v.z;
+                                     * sphere.position;
+                sphere.position[0] = v.x;
+                sphere.position[1] = v.y;
+                sphere.position[2] = v.z;
             }
              
             /* is this link affected by the robot's active dofs? */

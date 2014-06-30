@@ -60,6 +60,7 @@ namespace chomp {
     case CHOMP_GLOBAL_ITER: return "CHOMP_GLOBAL_ITER";
     case CHOMP_LOCAL_ITER: return "CHOMP_LOCAL_ITER";
     case CHOMP_FINISH: return "CHOMP_FINISH";
+    case CHOMP_TIMEOUT: return "CHOMP_TIMEOUT";
     default: return "[INVALID]";
     }
   }
@@ -88,6 +89,7 @@ namespace chomp {
               << "last=" << std::setprecision(10) << lastObjective << ", "
               << "rel=" << std::setprecision(10) << ((lastObjective-curObjective)/curObjective) << ", "
               << "constraint=" << std::setprecision(10) << constraintViolation << "\n";
+
     if (std::isnan(curObjective) || std::isinf(curObjective) ||
         std::isnan(lastObjective) || std::isinf(lastObjective)) {
       return 1;
@@ -180,7 +182,8 @@ namespace chomp {
                double obstol,
                size_t mg,
                size_t ml,
-               double tt):
+               double tt,
+               double timeout_seconds):
     factory(f),
     observer(0),
     ghelper(0),
@@ -196,11 +199,12 @@ namespace chomp {
     min_local_iter(0),
     max_local_iter(ml),
     full_global_at_final(false),
-    t_total(tt)
+    t_total(tt),
+    timeout_seconds( timeout_seconds ),
+    didTimeout( false ),
+    using_mutex( false )
   {
 
-    
-  
     N = xi.rows();
     N_sub = 0;
 
@@ -213,7 +217,11 @@ namespace chomp {
     assert(maxN >= minN);
 
   }
-
+ 
+  void Chomp::initMutex(){
+      using_mutex = true;
+      pthread_init_mutex( &trajectory_mutex, NULL );
+  }
 
   void Chomp::clearConstraints() {
 
@@ -373,7 +381,15 @@ namespace chomp {
           cur_global_iter >= max_global_iter)) {
         global = false;
       }
-      if (notify(CHOMP_GLOBAL_ITER, cur_global_iter, 
+
+      //check for a timeout
+      if (canTimeout && stop_time < TimeStamp::now() ){
+          global = false;
+          didTimeout = true;
+          notify(CHOMP_TIMEOUT, cur_global_iter, 
+                 curObjective, lastObjective, hmag);
+
+      } else if (notify(CHOMP_GLOBAL_ITER, cur_global_iter, 
                  curObjective, lastObjective, hmag)) {
         global = false;
       }
@@ -396,7 +412,15 @@ namespace chomp {
           cur_local_iter >= max_local_iter)) {
         local = false;
       }
-      if (notify(CHOMP_LOCAL_ITER, cur_local_iter, 
+
+      //check for a timeout
+      if (canTimeout && stop_time < TimeStamp::now() ){
+          local = false;
+          didTimeout = true;
+          notify(CHOMP_TIMEOUT, cur_local_iter, 
+                 curObjective, lastObjective, hmag);
+
+      } else if (notify(CHOMP_LOCAL_ITER, cur_local_iter, 
                  curObjective, lastObjective, hmag)) {
         local = false;
       }
@@ -420,6 +444,14 @@ namespace chomp {
   // precondition: N <= maxN
   // postcondition: N >= maxN
   void Chomp::solve(bool doGlobalSmoothing, bool doLocalSmoothing) {
+   
+    if ( timeout_seconds < 0 ){
+        canTimeout = false;
+    }else {
+        canTimeout = true;
+        stop_time = TimeStamp::now() +
+                    Duration::fromDouble( timeout_seconds );
+    }
 
     total_global_iter = 0;
     total_local_iter = 0;
@@ -429,7 +461,7 @@ namespace chomp {
     //std::cout << "initial trajectory has length " << N << "\n";
 
     while (1) {
-
+      
       prepareChomp();
 
       runChomp(doGlobalSmoothing, doLocalSmoothing); 
@@ -522,7 +554,10 @@ namespace chomp {
     }
 
     N = N_up;
+
+    lockTrajectory();
     xi = xi_up;
+    unlockTrajectory();
 
     L = L_sub = g = g_sub = h = h_sub = H = H_sub = 
       P = HP = Y = W = Ax = delta = MatX();
@@ -556,7 +591,8 @@ namespace chomp {
 
       delta = alpha * g_which;
       skylineCholSolveMulti(L_which, delta);
-
+      
+      lockTrajectory();
       if (subsample) {
         for (int t=0; t<N_sub; ++t) {
           xi.row(2*t) -= delta.row(t);
@@ -564,7 +600,7 @@ namespace chomp {
       } else {
         xi -= delta;
       }
-
+      unlockTrajectory();
     } else {
 
       P = H_which.transpose();
@@ -617,6 +653,7 @@ namespace chomp {
       
       assert(delta_rect.rows() == N_which && delta_rect.cols() == M);
 
+      lockTrajectory();
       if (subsample) {
         
         for (int t=0; t<N_sub; ++t) {
@@ -629,6 +666,7 @@ namespace chomp {
         
       }
 
+      unlockTrajectory();
     }
     
 
@@ -680,9 +718,11 @@ namespace chomp {
         delta_t = -alpha * g.row(t).transpose();
         
       }
-
+      
+      lockTrajectory();
       // transpose delta to be a row vector
       xi.row(t) += delta_t.transpose();
+      unlockTrajectory();
 
     }
 
@@ -734,13 +774,14 @@ namespace chomp {
       prepareChomp();
 
       double hinit = 0, hfinal = 0;
-
+      
+      lockTrajectory();
       for (int i=0; i<N; i+=2) {
 
         Constraint* c = constraints.empty() ? 0 : constraints[i];
 
         if (!c || !c->numOutputs()) { continue; }
-
+        
         for (int iter=0; ; ++iter) { 
           c->evaluateConstraints(xi.row(i), h, H);
           if (h.rows()) {
@@ -753,6 +794,7 @@ namespace chomp {
         }
       
       }
+      unlockTrajectory();
 
       prepareChompIter();
       double f = evaluateObjective();

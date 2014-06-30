@@ -88,7 +88,7 @@ class ORConstraintFactory : public chomp::ConstraintFactory {
     virtual chomp::Constraint* getConstraint(size_t t, size_t total);
     
     void addConstraint( chomp::Constraint * c, double start, double end );
-
+    void removeConstraint( size_t index );
     virtual void evaluate( const std::vector<chomp::Constraint*>& constraints, 
                    const chomp::MatX& xi, chomp::MatX& h_tot,
                    chomp::MatX& H_tot, int step);

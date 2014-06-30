@@ -211,19 +211,19 @@ namespace chomp {
         //the dimensionality of the configuration space
         size_t DoF = qt.size() ;
         
-        //format h (constraint value vector) and H (jacobian matrix).
+        //format h (constraint value vector).
         if (size_t(h.rows()) != _dim_constraint || h.cols() != 1)
         {
-          h.resize(_dim_constraint, 1);
+            h.resize(_dim_constraint, 1);
         }
         
         int current_dim = 0;
 
         std::vector< int > active_dims;
-
+        
         for ( int i = 0; i < _dim_constraint; i ++ )
         {
-            int dim = _dimension_id[i];
+            const int dim = _dimension_id[i];
             
             //if the robot's position goes over the TSR's upper bound:
             if ( xyzrpy[dim] > _Bw(dim, 1) ){
@@ -246,7 +246,8 @@ namespace chomp {
         if ( H.rows() != current_dim || size_t( H.cols() ) != DoF ){
             H.resize( current_dim, DoF );
         }
-        computeJacobian( qt, pos, H, active_dims ); 
+        computeJacobian( qt, pos, H, active_dims );
+
     }
 
 

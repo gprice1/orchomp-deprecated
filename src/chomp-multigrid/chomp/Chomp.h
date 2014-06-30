@@ -38,6 +38,9 @@
 
 #include <iostream>
 #include <vector>
+#include <pthread.h>
+    
+#include "../mzcommon/TimeUtil.h"
 
 namespace chomp {
 
@@ -51,6 +54,7 @@ namespace chomp {
     CHOMP_GLOBAL_ITER,
     CHOMP_LOCAL_ITER,
     CHOMP_FINISH,
+    CHOMP_TIMEOUT,
   };
 
   const char* eventTypeString(int eventtype);
@@ -208,7 +212,13 @@ namespace chomp {
     double dt; // computed automatically from t_total and N
     double inv_dt; // computed automatically from t_total and N
     
-    
+    double timeout_seconds;
+    bool canTimeout, didTimeout;
+    TimeStamp stop_time;
+
+    pthread_mutex_t trajectory_mutex;
+    bool using_mutex;
+
     Eigen::LDLT<MatX> cholSolver;
 
     std::vector<Constraint*> constraints; // vector of size N
@@ -222,7 +232,21 @@ namespace chomp {
           double obstol = 0.01,
           size_t max_global_iter=size_t(-1),
           size_t max_local_iter=size_t(-1),
-          double t_total=1.0);
+          double t_total=1.0,
+          double timeout_seconds=-1.0);
+    
+    void lockTrajectory(){
+        if (using_mutex){
+            pthread_mutex_lock( &trajectory_mutex );
+        }
+    }
+    void unlockTrajectory(){
+        if (using_mutex){
+            pthread_mutex_unlock( &trajectory_mutex );
+        }
+    }
+
+    void initMutex();
 
     void clearConstraints();
 

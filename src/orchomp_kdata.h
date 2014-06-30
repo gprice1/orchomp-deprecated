@@ -57,7 +57,7 @@ class Sphere
     //  robot link and the sphere. Since it is a sphere,
     //  rotation is meaningless, so it should just be an
     //  xyz vector.
-    double pose[3];
+    OpenRAVE::Vector position;
 
     Sphere() : link( NULL ), linkindex(-1){}
 };

@@ -1,5 +1,5 @@
+#include "orchomp_collision.h"
 #include "orchomp_mod.h"
-#include "orchomp_kdata.h"
 
 namespace orchomp {
 
@@ -36,116 +36,53 @@ OpenRAVE::dReal computeCostFromDist( OpenRAVE::dReal dist,
 
 }
 
-//TODO : Make this a real function
-bool mod::areAdjacent( int first, int second ) const {
-
-    //second must be larger than first, so if that is not the case, swap
-    //  them.
-    if ( first > second ){ std::swap( first, second ); }
-    
-    //for some reason, openRAVE uses this idiotic structure
-    //  to store adjacency values.
-    int value = ( second << 16 ) | (first & 0x0000FFFF);
-    std::set<int>::iterator it = robot->GetAdjacentLinks().find(value);
-    
-    //if the iterator does not hold an item, 
-    //  then the links are not adjacent
-    if ( robot->GetAdjacentLinks().end() == it ){
-        return false;
-    }
-    return true;
-}
-
-
-OpenRAVE::KinBodyPtr SphereCollisionHelper::createCube( double cost,
-                                 double size,
-                                 OpenRAVE::EnvironmentBasePtr & env,
-                                 const OpenRAVE::Vector & pos
-                                 )
-{
-
-    //create a cube to be used for collision detection in the world.
-    //  create an object and name that object 'cube'
-    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( env);
-    
-    std::stringstream ss;
-    ss   << pos[0] << "_"
-         << pos[1] << "_"
-         << pos[2] ; 
-
-    const std::string name = ss.str();
-
-    if( env->GetKinBody( name.c_str() ).get() ){return cube; }
-    cube->SetName( name.c_str() );
-
-    //set the dimensions of the cube object
-    std::vector< OpenRAVE::AABB > vaabbs(1);
-
-    /* extents = half side lengths */
-    vaabbs[0].extents = OpenRAVE::Vector( size, size, size );
-    vaabbs[0].pos = pos;
-    cube->InitFromBoxes(vaabbs, true);
-    
-    //add the cube to the environment
-    env->Add( cube );
-
-    OpenRAVE::Vector color;  
-    if ( cost <= 0.5*epsilon ){
-        float val = cost/(0.5*epsilon);
-        color = OpenRAVE::Vector( 1,val,0 );
-    }
-    else if ( cost <= epsilon ){
-        float val = cost/(0.5*epsilon) - 1.0;
-        color = OpenRAVE::Vector( 1,1,val);
-    }else {
-        color = OpenRAVE::Vector( 1,1,1 );
-    }
-    cube->GetLinks()[0]->GetGeometries()[0]->SetAmbientColor( color );
-    cube->GetLinks()[0]->GetGeometries()[0]->SetDiffuseColor( color );
-
-    return cube;
-
-}
 
 OpenRAVE::KinBodyPtr SphereCollisionHelper::createCube( 
-                                 const OpenRAVE::Vector & color,
-                                 double size,
-                                 OpenRAVE::EnvironmentBasePtr & env,
-                                 const OpenRAVE::Vector & pos
-                                 )
+                                            double dist,
+                                            double size,
+                                            const OpenRAVE::Vector & pos,
+                                            size_t sdf_index)
 {
-
-    //create a cube to be used for collision detection in the world.
-    //  create an object and name that object 'cube'
-    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( env);
     
-    std::stringstream ss;
-    ss   << pos[0] << "_"
-         << pos[1] << "_"
-         << pos[2] ; 
-
-    const std::string name = ss.str();
-
-    if( env->GetKinBody( name.c_str() ).get() ){return cube; }
-    cube->SetName( name.c_str() );
-
-    //set the dimensions of the cube object
-    std::vector< OpenRAVE::AABB > vaabbs(1);
-
-    /* extents = half side lengths */
-    vaabbs[0].extents = OpenRAVE::Vector( size, size, size );
-    vaabbs[0].pos = pos;
-    cube->InitFromBoxes(vaabbs, true);
-    
-    //add the cube to the environment
-    env->Add( cube );
-
-    cube->GetLinks()[0]->GetGeometries()[0]->SetAmbientColor( color );
-    cube->GetLinks()[0]->GetGeometries()[0]->SetDiffuseColor( color );
+    OpenRAVE::Vector color, extents( size, size, size );
+    colorFromDist( dist, sdf_index, color );
+    OpenRAVE::KinBodyPtr cube = module->createBox( pos, extents, color );
 
     return cube;
 
 }
+
+void SphereCollisionHelper::colorFromDist( double dist,
+                                           size_t sdf_index,
+                                           OpenRAVE::Vector & color ){
+
+    const DistanceField & df = module->sdfs[ sdf_index ];
+
+    const double min = df.grid.minDist();
+    const double max = df.grid.maxDist();
+    
+    const double cutoff1 = (max - min) / 3;
+    const double cutoff2 = cutoff1 * 2;
+    
+    dist -= min;
+    
+    //As distance increases, the color goes from red to yellow to green
+    // to blue, to black. 
+    if ( dist < cutoff1 ){
+        double val = dist/cutoff1;
+        color = OpenRAVE::Vector( 1-val, val , 0);
+
+    } else if ( dist < cutoff2 ){
+        double val = (dist - cutoff1)/cutoff1;
+        color = OpenRAVE::Vector( 0, 1-val, val  );
+
+    }else {
+        double val = (dist - cutoff2)/cutoff1;
+        color = OpenRAVE::Vector( val, val , 1 );
+    }
+
+}
+
 
 void SphereCollisionHelper::visualizeSDFSlice( size_t sdf_index,
                                                size_t axis,
@@ -161,12 +98,6 @@ void SphereCollisionHelper::visualizeSDFSlice( size_t sdf_index,
     bounds[ axis ] = slice_index;
     bounds[axis + 3] = slice_index + 1;
 
-    const double min = df.grid.minDist();
-    const double max = df.grid.maxDist();
-    
-    const double cutoff1 = (max - min) / 3;
-    const double cutoff2 = cutoff1 * 2;
-
     bounds[3 + slice_index] = 0;
     
     std::vector< OpenRAVE::KinBodyPtr > cubes;
@@ -175,25 +106,14 @@ void SphereCollisionHelper::visualizeSDFSlice( size_t sdf_index,
     for( size_t j = bounds[1]; j < bounds[4]; j ++ ){
     for( size_t k = bounds[2]; k < bounds[5]; k ++ ){
 
-        double dist = df.grid( i, j, k ) - min;
+        double dist = df.grid( i, j, k );
         vec3 center = df.grid.cellCenter( i, j, k );
 
         OpenRAVE::Vector color, pos( center[0], center[1], center[2] ) ;
-        
-        if ( dist < cutoff1 ){
-            color = OpenRAVE::Vector( 0, 0, dist/cutoff1 );
-        } else if ( dist < cutoff2 ){
-            double val = (dist - cutoff1)/cutoff1;
-            color = OpenRAVE::Vector( 0, val, 1 - val  );
-        }else {
-            double val = (dist - cutoff2)/cutoff1;
-            color = OpenRAVE::Vector( val, 1 - val , 0 );
-        }
-        
+
         cubes.resize( cubes.size() + 1 );
         
-        cubes.back() = createCube( color, df.cube_extent,
-                                   module->environment, pos );
+        cubes.back() = createCube( dist, df.cube_extent, pos, sdf_index );
 
     }
     }
@@ -223,18 +143,12 @@ void SphereCollisionHelper::visualizeSDFSlice( size_t sdf_index,
 OpenRAVE::dReal SphereCollisionHelper::getSDFCollisions(
                                       const Sphere & sphere,
                                       const OpenRAVE::Vector & position, 
-                                      vec3 & gradient )
+                                      vec3 & gradient,
+                                      bool viewDists)
 {
     
-    //if there are no sdfs for collision detection, do not calculate this
-    if ( module->sdfs.size() == 0 ){
-        return 0.0;
-    }
-
-
-    //debugStream << "Computing SDF Collisions" << std::endl;
-    
     OpenRAVE::dReal dist = HUGE_VAL;
+    size_t sdf_index = -1;
 
     //check all of the sdfs, and get the one with the least dist 
     for ( size_t i = 0; i < module->sdfs.size(); i ++ ){
@@ -249,23 +163,28 @@ OpenRAVE::dReal SphereCollisionHelper::getSDFCollisions(
         if (current_dist < dist) {
             dist = current_dist;
             gradient = current_gradient;
+            sdf_index = i;
         }
     }
 
-    //adjust the value of the distance by the radius of the
-    //  sphere to account for the size of the sphere
-    dist -= sphere.radius;
-    
-    
-    //debugStream << "Finished SDF Collisions" << std::endl;
-    double cost = computeCostFromDist( dist, epsilon, gradient );
-    
-    /*
-    if ( cost > 0 ){
-        createCube( cost, 0.04, module->environment, position );
+    if (dist != HUGE_VAL){
+
+        //adjust the value of the distance by the radius of the
+        //  sphere to account for the size of the sphere
+        dist -= sphere.radius;
+        
+        if ( viewDists && dist > epsilon ){
+            createCube( dist, module->sdfs[sdf_index].cube_extent,
+                        position, sdf_index);
+        }
+
+        //debugStream << "Finished SDF Collisions" << std::endl;
+        return computeCostFromDist( dist, epsilon, gradient );
+        
+
     }
-    */
-    return cost;
+
+    return 0.0;
 
 }
 
@@ -320,7 +239,7 @@ OpenRAVE::dReal SphereCollisionHelper::getSelfCollisions(
 
         //get the position of the collision sphere in the world.
         const OpenRAVE::Vector collision_pos =
-                  link_xform * OpenRAVE::Vector( collision_sphere.pose );
+                  link_xform * collision_sphere.position;
         
         //calculate the distance between the two centers of the spheres,
         //  also get the vector from the collision sphere to the
@@ -415,8 +334,7 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
             current_sphere.link->GetTransform();
     
     //get the transformation from the body to the sphere.
-    const OpenRAVE::Vector current_pos =
-                           t * OpenRAVE::Vector( current_sphere.pose );
+    const OpenRAVE::Vector current_pos = t * current_sphere.position;
     
     //COLLISION DETECTION: distance field collisions, and self collisions
     vec3 gradient_sdf(0,0,0), gradient_self(0,0,0);

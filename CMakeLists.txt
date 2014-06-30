@@ -22,16 +22,19 @@ add_subdirectory( src/chomp-multigrid )
 
 add_library(orchomp SHARED 
     src/orchomp.cpp
-    src/orchomp_mod.cpp
-    src/orchomp_kdata.cpp
+
+    src/orchomp_mod_utils.cpp
     src/orchomp_mod_parse.cpp
+    src/orchomp_mod.cpp
+    
+    src/orchomp_kdata.cpp
     src/orchomp_distancefield.cpp
-    src/orchomp_mod_collision.cpp
+    src/orchomp_collision.cpp
     src/orchomp_constraint.cpp
 
     src/utils/os.c
     src/utils/util_shparse.c
-
+    src/utils/timer.h
 )
 
 set_target_properties(orchomp PROPERTIES COMPILE_FLAGS
