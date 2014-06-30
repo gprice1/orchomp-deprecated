@@ -220,7 +220,7 @@ namespace chomp {
  
   void Chomp::initMutex(){
       using_mutex = true;
-      pthread_init_mutex( &trajectory_mutex, NULL );
+      pthread_mutex_init( &trajectory_mutex, NULL );
   }
 
   void Chomp::clearConstraints() {

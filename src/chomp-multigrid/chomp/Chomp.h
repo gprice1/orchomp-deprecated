@@ -235,6 +235,12 @@ namespace chomp {
           double t_total=1.0,
           double timeout_seconds=-1.0);
     
+    
+    ~Chomp(){
+        if( using_mutex ){
+            pthread_mutex_destroy( &trajectory_mutex );
+        }
+    }
     void lockTrajectory(){
         if (using_mutex){
             pthread_mutex_lock( &trajectory_mutex );
