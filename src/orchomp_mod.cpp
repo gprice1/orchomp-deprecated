@@ -114,9 +114,12 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
     
     OpenRAVE::EnvironmentMutex::scoped_lock lockenv(environment->GetMutex());
     parseViewSpheres( sout,  sinput);
-
-    if ( !sphere_collider ) { getSpheres() ; }
     
+    //if there are no spheres, get them
+    if ( active_spheres.size() + inactive_spheres.size() == 0) {
+        getSpheres() ; 
+    }
+     
     char text_buf[1024];
     
     const size_t n_active = active_spheres.size();
@@ -177,9 +180,34 @@ int mod::removeconstraint(std::ostream& sout, std::istream& sinput){
                   std::endl;
     }
 
-    return 1;
+    return 0;
 }
 
+int mod::createtsr( std::ostream& sout, std::istream& sinput){
+    
+    ORTSRConstraint * c = parseTSR( sinput );
+    
+    //default to a trajectory wide constraint.
+    double starttime(0), endtime(1);
+
+    while ( !sinput.eof() ){
+        std::string cmd;
+        sinput >> cmd;
+
+        if (!sinput.eof()){ break; }
+        if ( cmd == "starttime" ){
+            sinput >> starttime;
+        }else if ( cmd == "endtime" ){
+            sinput >> endtime;
+        }
+    }
+    
+    //add the constraint to the factory, and to the list of constraints.
+    factory->addConstraint( c, starttime, endtime );
+    tsrs.push_back( c );
+
+    return 0;
+}
 
 int mod::addtsr(std::ostream& sout, std::istream& sinput){
     
@@ -202,7 +230,7 @@ int mod::addtsr(std::ostream& sout, std::istream& sinput){
             sinput >> pose_0_w_rot[0];
             sinput >> pose_0_w_rot[1];
             sinput >> pose_0_w_rot[2];
-
+    
         }
         else if ( cmd == "pose_w_e" ){
             sinput >> pose_w_e_trans[0];
@@ -249,25 +277,20 @@ int mod::addtsr(std::ostream& sout, std::istream& sinput){
 
     }
 
-    //TODO Make this less hacky.
-    for ( int i = 0; i < 3; i ++ ){
-        if ( bounds( i, 1) >= 1e10 ){
-            bounds( i, 1 ) = HUGE_VAL;
-        }
-        if ( bounds( i, 0) <= -1e10 ){
-            bounds( i, 0 ) = -HUGE_VAL;
-        }
-    }
+
 
     chomp::Transform pose_0_w(pose_0_w_rot, pose_0_w_trans);
     chomp::Transform pose_w_e(pose_w_e_rot, pose_w_e_trans);
-
-    ORTSRConstraint * c = new ORTSRConstraint( this, pose_0_w,
+    
+    int index = active_manip->GetEndEffector()->GetIndex();
+    ORTSRConstraint * c = new ORTSRConstraint( this, 
+                                               index, 
+                                               pose_0_w,
                                                bounds, pose_w_e );
     factory->addConstraint( c, starttime, endtime );
     tsrs.push_back( c );
 
-    return 1;
+    return 0;
 }
 
 
@@ -508,8 +531,6 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     parseCreate( sout,  sinput);
     
 
-    //after the arguments have been collected, pass them to chomp
-    createInitialTrajectory();
     
     //create a padded upper and lower joint limits vectors. These will be
     //  Used for constraining the trajectory to the joint limits.
@@ -529,29 +550,16 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     assert( isWithinLimits( q0 ) );
     assert( isWithinLimits( q1 ) );
 
-    if ( !info.noFactory ){
-        factory = new ORConstraintFactory( this );
-    }
-    //now that we have a trajectory, make a chomp object
-    chomper = new chomp::Chomp( factory, trajectory,
-                                q0, q1, info.n_max, 
-                                info.alpha, info.obstol,
-                                info.max_global_iter,
-                                info.max_local_iter,
-                                info.t_total, info.timeout_seconds);
-    
-    chomper->min_global_iter = info.min_global_iter;
-    chomper->min_local_iter = info.min_local_iter;
-     
-    //TODO Compute signed distance field
-    
 
-    //Setup the collision geometry
-    getSpheres();
 
     //create the sphere collider to actually 
     //  use the sphere information, and pass in its parameters.
     if ( !info.noCollider ){
+        
+        //Setup the collision geometry
+        getSpheres();
+
+        //create a collider object to use the geometry
         sphere_collider = new SphereCollisionHelper(
                           n_dof, 3, active_spheres.size(), this);
         sphere_collider->epsilon = info.epsilon;
@@ -567,8 +575,6 @@ int mod::create(std::ostream& sout, std::istream& sinput)
     if (sphere_collider){
         collisionHelper = new chomp::ChompCollGradHelper(
                                 sphere_collider, info.gamma);
-        std::cout << "GAMMA: " << info.gamma << std::endl;
-        chomper->ghelper = collisionHelper;
     }
     
     //if we want a debug observer, then give chomp the
@@ -590,6 +596,27 @@ int mod::iterate(std::ostream& sout, std::istream& sinput)
     
     //get the arguments
     parseIterate( sout,  sinput);
+
+
+    //after the arguments have been collected, pass them to chomp
+    createInitialTrajectory();
+
+    if ( !info.noFactory ){
+        factory = new ORConstraintFactory( this );
+    }
+    //now that we have a trajectory, make a chomp object
+    chomper = new chomp::Chomp( factory, trajectory,
+                                q0, q1, info.n_max, 
+                                info.alpha, info.obstol,
+                                info.max_global_iter,
+                                info.max_local_iter,
+                                info.t_total, info.timeout_seconds);
+    //setup the mins
+    chomper->min_global_iter = info.min_global_iter;
+    chomper->min_local_iter = info.min_local_iter;
+
+    //setup the collision checker.
+    chomper->ghelper = collisionHelper;
 
     //get the lock for the environment
     OpenRAVE::EnvironmentMutex::scoped_lock lock(environment->GetMutex() );
@@ -723,9 +750,9 @@ int mod::execute(std::ostream& sout, std::istream& sinput){
 
 int mod::destroy(std::ostream& sout, std::istream& sinput){
     
-    if (chomper){ delete chomper; }
+    if (chomper){         delete chomper; }
     if (sphere_collider){ delete sphere_collider; }
-    if (factory){ delete factory;}
+    if (factory){         delete factory;}
     if (collisionHelper){ delete collisionHelper; }
 
     return 0;

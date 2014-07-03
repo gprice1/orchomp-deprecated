@@ -22,7 +22,7 @@
  * A copy of the GNU General Public License is provided with libcd
  * (license-gpl.txt) and is also available at <http://www.gnu.org/licenses/>.
  *
- * This handles all of the parsing for the mod class from ordchomp_mod.h
+ * This handles all of the parsing for the mod class from orchomp_mod.h
  */
  
 
@@ -63,6 +63,90 @@ void parseTransform(std::istream& sinput, OpenRAVE::Transform & xform){
     sinput >> xform.rot[2];
 }
 
+void parseMatToTransform( std::istream & sinput, chomp::Transform & xform ){
+
+    chomp::Transform::mat4 mat;
+
+    for ( int i = 0; i < 3; i ++ ){
+        for ( int j = 0; j < 4; j ++ ){
+            if ( sinput.eof() ){
+                RAVELOG_ERROR("Not Enough Values in parseMatToTransform()");
+                throw OpenRAVE::openrave_exception("Bad arguments!");
+            }
+            sinput >> mat( i, j );
+        }
+    }
+
+    mat(3,3) = 1;
+
+    xform.setFromMatrix( mat );
+}
+ORTSRConstraint * mod::parseTSR( std::istream & sinput ){
+
+    chomp::Transform T0_w, Tw_e;
+    chomp::MatX bounds(6,2);
+
+    int manip_index;
+    sinput >> manip_index;
+
+    std::string body_name, link_name;
+
+    sinput >> body_name;
+    if (body_name != "NULL"){ sinput >> link_name; }
+    else { link_name = "NULL"; }
+
+    parseMatToTransform( sinput, T0_w );
+    parseMatToTransform( sinput, Tw_e );
+
+    //parse the bounds of the tsr
+    sinput >> bounds( 0, 0); sinput >> bounds( 0, 1);
+    sinput >> bounds( 1, 0); sinput >> bounds( 1, 1);
+    sinput >> bounds( 2, 0); sinput >> bounds( 2, 1);
+    sinput >> bounds( 3, 0); sinput >> bounds( 3, 1);
+    sinput >> bounds( 4, 0); sinput >> bounds( 4, 1);
+    sinput >> bounds( 5, 0); sinput >> bounds( 5, 1);
+    
+    //TODO Make this less hacky.
+    for ( int i = 0; i < 3; i ++ ){
+        if ( bounds( i, 1) >= 1e10 ){
+            bounds( i, 1 ) = HUGE_VAL;
+        }
+        if ( bounds( i, 0) <= -1e10 ){
+            bounds( i, 0 ) = -HUGE_VAL;
+        }
+    }
+
+    return new ORTSRConstraint( this, manip_index, T0_w, bounds, Tw_e,
+                                body_name, link_name );
+}
+    
+void mod::parseRobot( std::string & robot_name ){
+    if (robot.get()) { 
+        throw OpenRAVE::openrave_exception(
+                "Only one robot can be passed!");
+    }
+    robot = environment->GetRobot( robot_name.c_str() );
+
+    if ( !robot.get() ){              
+        throw OpenRAVE::openrave_exception(
+                "Failed to get robot");
+    }
+    active_indices = robot->GetActiveDOFIndices();
+    robot->GetActiveDOFLimits( lowerJointLimits, upperJointLimits);
+    n_dof = active_indices.size();
+ 
+    std::cout << "Active Indices: " ;
+    for ( size_t i = 0; i < active_indices.size(); i ++ ){
+        std::cout << active_indices[i];
+    }
+    std::cout << std::endl;
+
+    if (!robot.get()) {
+        throw OpenRAVE::openrave_exception(
+                "Robot name not valid");
+    }
+}
+
 
 void mod::parsePoint( std::istream& sinput, chomp::MatX & point ){
     if ( active_indices.size() <= 0 ){
@@ -77,6 +161,18 @@ void mod::parsePoint( std::istream& sinput, chomp::MatX & point ){
 
     debugStream << "\t\t-Added Point: " << point << std::endl;
 }
+
+void parseError( std::istream& sinput ){
+
+    std::string cmd;
+
+    while ( !sinput.eof() ){
+        RAVELOG_ERROR("argument %s not known!\n", cmd.c_str() );
+        sinput >> cmd;
+    }
+    throw OpenRAVE::openrave_exception("Bad arguments!");
+}
+
 
 void mod::parseCreate(std::ostream & sout, std::istream& sinput)
 {
@@ -102,32 +198,8 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
         else if (cmd == "robot")
         {
             sinput >> robot_name;
+            parseRobot( robot_name );
 
-            if (robot.get()) { 
-                throw OpenRAVE::openrave_exception(
-                        "Only one robot can be passed!");
-            }
-            robot = environment->GetRobot( robot_name.c_str() );
-
-            if ( !robot.get() ){              
-                throw OpenRAVE::openrave_exception(
-                        "Failed to get robot");
-            }
-            active_indices = robot->GetActiveDOFIndices();
-            robot->GetActiveDOFLimits( lowerJointLimits, upperJointLimits);
-            n_dof = active_indices.size();
-         
-            std::cout << "Active Indices: " ;
-            for ( size_t i = 0; i < active_indices.size(); i ++ ){
-                std::cout << active_indices[i];
-            }
-            std::cout << std::endl;
-
-
-            if (!robot.get()) {
-                throw OpenRAVE::openrave_exception(
-                        "Robot name not valid");
-            }
         }else if ( cmd == "activemanipindex" ){
             int index;
             sinput >> index;
@@ -138,7 +210,8 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
                 robot->SetActiveManipulator( active_manip );
                 robot->SetActiveDOFs( active_manip->GetArmIndices() );
                 active_indices = robot->GetActiveDOFIndices();
-                robot->GetActiveDOFLimits(lowerJointLimits, upperJointLimits);
+                robot->GetActiveDOFLimits(lowerJointLimits,
+                                          upperJointLimits);
                 n_dof = active_indices.size();
             }
             else{ 
@@ -178,7 +251,97 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
             
             vectorToMat( solution, q1 );
 
-        }else if (cmd =="obstol") {
+        }
+        else if ( cmd == "randomstart" ){
+            getRandomState( q0 );
+            debugStream << "\t\tRandom Start: " << q0 << std::endl;
+        }else if ( cmd == "randomend" ){
+            getRandomState( q1 );
+            debugStream << "\t\tRandom end: " << q1 << std::endl;
+        }
+        else if (cmd == "q0" ){ parsePoint( sinput, q0 ); }
+        else if (cmd == "q1" ||
+                 cmd == "adofgoal" ){ parsePoint( sinput, q1); }
+        else if (cmd == "jointpadding"){ sinput >> info.jointPadding; }
+        else if (cmd == "epsilon"){ sinput >> info.epsilon;}
+        else if (cmd == "epsilon_self"){ sinput >> info.epsilon_self; }
+        else if (cmd == "obs_factor"){ sinput >> info.obs_factor; }
+        else if (cmd == "obs_factor_self"){sinput >> info.obs_factor_self;}
+        else if (cmd == "doobserve"){ info.doObserve = true;  }
+
+        // These are unimplemented:
+        else if (cmd == "starttraj" ){
+            debugStream << "Starttraj has not been implemented"
+                        << std::endl;
+        }
+        //these are depracated commands and may or may not be used for
+        //  backwards compatibility.
+        else if (cmd =="n_points") {
+            sinput >> info.n_max;
+        }
+        else if (cmd == "seed" ||
+                 cmd == "use_hmc" ||
+                 cmd == "hmc_resample_lambda" ||
+                 cmd == "everyn_tsr" ||
+                 cmd == "star_cost" ||
+                 cmd == "lambda" ){
+            debugStream << cmd << " has not been implemented" << std::endl;
+
+            double garbage;
+            sinput >> garbage;
+        }
+        else if ( cmd == "use_hmc" ){
+            // do nothing
+            debugStream << "use_hmc has not been implemented" << std::endl;
+        }
+        //error case
+        else{ parseError( sinput );}
+    }
+
+    if (size_t( q0.cols() )!= active_indices.size() ){
+        std::vector< OpenRAVE::dReal > values;
+        robot->GetDOFValues( values, active_indices );
+        vectorToMat( values, q0 );
+    }
+
+
+   
+}
+
+void mod::parseViewSpheres(std::ostream & sout, std::istream& sinput)
+{
+
+    std::string cmd;
+    /* parse command line arguments */
+    while (!sinput.eof () ){
+        sinput >> cmd;
+        debugStream << "\t-ExecutingCommand: " << cmd << std::endl;
+      
+        if (!sinput){ break; }
+        if (cmd == "robot")
+        {
+            sinput >> robot_name;
+            parseRobot( robot_name );
+        }
+
+        //error case
+        else{ parseError( sinput ); }
+    }
+
+}
+
+void mod::parseIterate(std::ostream & sout, std::istream& sinput)
+{
+    std::string cmd;
+    /* parse command line arguments */
+    while (!sinput.eof() )
+    {
+        sinput >> cmd;
+        debugStream << "\t-ExecutingCommand: " << cmd << std::endl;
+      
+        if (!sinput){ break; }
+
+        if (cmd =="obstol") {
             sinput >> info.obstol;
         }else if (cmd =="n") {
             sinput >> info.n;
@@ -196,44 +359,19 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
             sinput >> info.max_global_iter;
         }else if (cmd =="max_local_iter") {
             sinput >> info.max_local_iter;
-        }else if (cmd == "q0" ){
-            parsePoint( sinput, q0 );
-        }else if ( cmd == "q1" ){
-            parsePoint( sinput, q1);
-        }else if ( cmd == "randomstart" ){
-            getRandomState( q0 );
-            debugStream << "\t\tRandom Start: " << q0 << std::endl;
-        }else if ( cmd == "randomend" ){
-            getRandomState( q1 );
-            debugStream << "\t\tRandom end: " << q1 << std::endl;
-        }else if (cmd == "epsilon"){
-            sinput >> info.epsilon;
-        }else if (cmd == "epsilon_self"){
-            sinput >> info.epsilon_self;
-        }else if (cmd == "obs_factor"){
-            sinput >> info.obs_factor;
-        }else if (cmd == "obs_factor_self"){
-            sinput >> info.obs_factor_self;
-        }else if (cmd == "jointpadding"){
-            sinput >> info.jointPadding;
-        }else if (cmd == "timeout"){
+        }else if (cmd == "timeout" ||
+                  cmd == "max_time"){
             sinput >> info.timeout_seconds;
         }
-
-    
         else if ( cmd == "dolocal"  ){ info.doLocal   = true;  }
         else if ( cmd == "nolocal"  ){ info.doLocal   = false; }
         else if ( cmd == "doglobal" ){ info.doGlobal  = true;  } 
-        else if ( cmd == "doobserve"){ info.doObserve = true;  }
         else if ( cmd == "nofactory"){ info.noFactory = true;  }
         else if ( cmd == "nocollider"){ info.noCollider = true;  }
         else if ( cmd == "noselfcollision"){ info.noSelfCollision = true;  }
         else if ( cmd == "noenvironmentalcollision"){
             info.noEnvironmentalCollision = true; 
-        }
-
-        //else if ( cmd =="noglobal") { info.doGlobal == false; }
-
+        }        
         //error case
         else{ 
             while ( !sinput.eof() ){
@@ -243,26 +381,29 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
             throw OpenRAVE::openrave_exception("Bad arguments!");
         }
     }
-
-    if (size_t( q0.cols() )!= active_indices.size() ){
-        std::vector< OpenRAVE::dReal > values;
-        robot->GetDOFValues( values, active_indices );
-        vectorToMat( values, q0 );
-    }
-
-
-   
-}
-
-void mod::parseViewSpheres(std::ostream & sout, std::istream& sinput)
-{
-}
-void mod::parseIterate(std::ostream & sout, std::istream& sinput)
-{
 }
 void mod::parseGetTraj(std::ostream & sout, std::istream& sinput)
 {
+    bool no_collision_check(false), 
+         no_collision_exception(false),
+         no_collision_details(false) ;
+
+    std::string cmd;
+    /* parse command line arguments */
+    while (!sinput.eof () ){
+        sinput >> cmd;
+        
+        if (!sinput){ break; }
+        if (cmd == "no_collision_check"){ 
+            no_collision_check = true;
+        }else if (cmd == "no_collision_exception"){
+            no_collision_exception = true;
+        }else if (cmd == "no_collision_details"){
+            no_collision_details = true; 
+        }
+    }
 }
+
 void mod::parseDestroy(std::ostream & sout, std::istream& sinput)
 {
 }

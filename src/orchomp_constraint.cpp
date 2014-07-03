@@ -55,6 +55,20 @@ void UnifiedConstraint::evaluateConstraints( const chomp::MatX& qt,
     }
 }
 
+ORTSRConstraint::ORTSRConstraint(mod * module, int manip_index,
+                                 chomp::Transform & pose_0_w, 
+                                 chomp::MatX & Bw,
+                                 chomp::Transform & pose_w_e,
+                                 std::string body_name,
+                                 std::string link_name) :
+     TSRConstraint( pose_0_w, Bw, pose_w_e ),
+     module( module ), 
+     ee_link_index( module->robot->GetManipulators()[manip_index]
+                          ->GetEndEffector()->GetIndex() ),
+     body_name( body_name ), link_name( link_name )
+{
+}
+
 
 //this function takes in a robot state, qt, and returns the position of
 // the relevant end-effector in the world frame. This is equivalent
@@ -65,8 +79,8 @@ void ORTSRConstraint::forwardKinematics( const chomp::MatX& qt,
 {
 
     module->setActiveDOFValues( qt);
-    OpenRAVE::Transform t = module->robot->GetActiveManipulator()
-                                 ->GetEndEffectorTransform();
+    OpenRAVE::Transform t = module->robot->GetLinks()[ee_link_index]
+                                  ->GetTransform();
 
     pos.setTranslation( vec3( t.trans.x, t.trans.y, t.trans.z ) );
     pos.setRotation( chomp::Transform::quat(
@@ -90,10 +104,8 @@ void ORTSRConstraint::computeJacobian(
     //get the degrees of freedom
     const int DOF = qt.size();
     
-    //get the index of the currently active manipulator
-    const int ee_link_index = module->active_manip
-                                    ->GetEndEffector()->GetIndex();
-    OpenRAVE::Transform t = module->active_manip->GetTransform();
+    OpenRAVE::Transform t = module->robot->GetLinks()[ ee_link_index ]
+                                  ->GetTransform();
     std::vector< OpenRAVE::dReal > translationJacobian;
     std::vector< OpenRAVE::dReal > rotationJacobian;
 

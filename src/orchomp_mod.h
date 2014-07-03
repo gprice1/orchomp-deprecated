@@ -58,7 +58,7 @@ namespace orchomp
 //  for an eventual call to chomp.
 class ChompInfo {
 public:
-    // al: alpha
+    // alpha : the gradient step
     // obstol: Relative error of the objective function - 
     //          once the error gets to a low enough point,
     //          reltive to the objective function, quit chomping.
@@ -83,13 +83,24 @@ public:
 
     //n: the initial size of the trajectory,
     //n_max: the final size,
+    //min_global_iter: the min # of global chomp interations,
     //max_global_iter: the max # of global chomp interations,
+    //min_local_iter: the min # of local smoothing iterations
     //max_local_iter: the max # of local smoothing iterations
     size_t n, n_max, min_global_iter, max_global_iter,
                      min_local_iter, max_local_iter;
 
-    //whether or not global and/or local chomp should
-    //  be done.
+    //doGlobal/doLocal: whether or not global and/or local chomp should
+    //                  be done.
+    // doObserve : whether or not chomp should use an observer to 
+    //             print out debug information
+    // noFactory : if true, chomp will not be given a constraint factory,
+    //             so no constraints will be enforced
+    // noCollider : if true, chomp will not be given a gradient descender,
+    //              so it will not descend out of collisions
+    // noSelfCollision : the collider will not check for self-collision
+    // noEnvironmentalCollision : if true, the collider will not check for
+    //                           collisions between the robot and environ.
     bool doGlobal, doLocal, doObserve, noFactory, noCollider, 
          noSelfCollision, noEnvironmentalCollision;
 
@@ -207,7 +218,11 @@ public:
     
     //add a tsr to the factory
     int addtsr(std::ostream & sout, std::istream& sinput);
-    
+    //create a tsr, and add it to the factory. 
+    //  This is identical to the above function,
+    //  except that it uses a different method to parse the tsr.
+    int createtsr(std::ostream & sout, std::istream& sinput);
+
     //creates a box in the environment to visualize a given TSR.
     int viewtsr(std::ostream & sout, std::istream& sinput);
     
@@ -232,7 +247,8 @@ public:
     int main(const std::string& cmd)
        { RAVELOG_INFO("module init cmd: %s\n", cmd.c_str()); return 0; }
 
-
+    //Get the collision geometry from the XML files
+    void getSpheres();
   
   ////////////////////////////////////////////////////////////////////
   ////// these functions can be found in orchomp_mod_parse ///////////
@@ -252,7 +268,13 @@ public:
                                    std::istream& sinput);
     void parsePoint( std::istream & sinput, chomp::MatX & point);
     void parseExecute( std::ostream & sout , std::istream & sinput );
+    void parseRobot( std::string & name );
+    ORTSRConstraint * parseTSR( std::istream & sinput );
 
+    
+    ///////////////////////////////////////////////////////////////////
+    /////The below functions are in the file orchomp_mod_utils.cpp/////
+    ///////////////////////////////////////////////////////////////////
 public:
     // A small helper function for creating a straight
     //  line trajectory between two endpoints:
@@ -283,8 +305,7 @@ public:
     void getIK( const OpenRAVE::Transform & xform, 
                      std::vector< OpenRAVE::dReal > & solution );
 
-    //Get the collision geometry from the XML files
-    void getSpheres();
+
 
     //print out the trajectory 
     void coutTrajectory() const;

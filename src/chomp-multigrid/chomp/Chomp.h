@@ -55,6 +55,7 @@ namespace chomp {
     CHOMP_LOCAL_ITER,
     CHOMP_FINISH,
     CHOMP_TIMEOUT,
+    CHOMP_GOALSET_ITER,
   };
 
   const char* eventTypeString(int eventtype);
@@ -222,6 +223,11 @@ namespace chomp {
     Eigen::LDLT<MatX> cholSolver;
 
     std::vector<Constraint*> constraints; // vector of size N
+    
+    //used for goal set chomp.
+    Constraint * goalset;
+    bool usingGoalSet;
+    MatX goalset_coeffs;
 
     Chomp(ConstraintFactory* f,
           const MatX& xi_init, // should be N-by-M
@@ -251,11 +257,12 @@ namespace chomp {
             pthread_mutex_unlock( &trajectory_mutex );
         }
     }
-
+    
     void initMutex();
-
+    
     void clearConstraints();
-
+    
+    //prepares chomp to be run at a resolution level
     void prepareChomp();    
 
     // precondition: prepareChomp was called for this resolution level
@@ -278,7 +285,7 @@ namespace chomp {
 
     // single iteration of chomp
     void chompGlobal();
-
+    
     // single iteration of local smoothing
     //
     // precondition: prepareChompIter has been called since the last
@@ -305,7 +312,26 @@ namespace chomp {
                double lastObjective,
                double constraintViolation) const;
 
+
+    //Give a goal set in the form of a constraint for chomp to use on the
+    //  first resolution level.
+    void useGoalSet( Constraint * goalset );
+
+    //runs goal set chomp for the given resolution level
+    void chompGoalSet();
+    
+    //must be run before each call to goalSetIteration
+    void prepareGoalSetIter();
+
+    //run a single iteration of goal set chomp
+    void goalSetIteration();
+
+    void prepareGoalSetRun();
+        
   };
+
+
+
 
 }
 

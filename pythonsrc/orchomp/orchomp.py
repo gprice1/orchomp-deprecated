@@ -1,6 +1,7 @@
-# \file orcdchomp.py
-# \brief Python interface to orcdchomp.
-# \author Christopher Dellin
+
+# \file orchomp.py
+# \brief Python interface to orchomp.
+# \author Temple Price
 # \date 2012
 
 # (C) Copyright 2012 Carnegie Mellon University
@@ -16,11 +17,16 @@ def bind(mod):
    mod.iterate = types.MethodType(iterate,mod)
    mod.gettraj = types.MethodType(gettraj,mod)
    mod.destroy = types.MethodType(destroy,mod)
-   mod.runchomp = types.MethodType(runchomp,mod)
+   mod.execute = types.MethodType(execute,mod)
+   mod.playback = types.MethodType(playback,mod)
+   mod.viewtsr  = types.MethodType(viewtsr,mod)
+   mod.removeconstraint = types.MethodType(removeconstraint,mod)
+   mod.runchomp = types.MethodType( runchomp, mod );
+
 
 def shquot(s):
    return "'" + s.replace("'","'\\''") + "'"
-   
+
 def viewspheres(mod, robot=None, releasegil=False):
    cmd = 'viewspheres'
    if robot is not None:
@@ -68,7 +74,8 @@ def addfield_fromobsarray(mod, kinbody=None, obsarray=None, sizes=None, lengths=
    return mod.SendCommand(cmd, releasegil)
 
 def create(mod, robot=None, adofgoal=None, lambda_=None,
-   starttraj=None, n_points=None, start_tsr=None, start_cost=None, everyn_tsr=None,
+   starttraj=None, n_points=None, start_tsr=None, start_cost=None,
+   everyn_tsr=None,
    use_momentum=None, use_hmc=None, hmc_resample_lambda=None, seed=None,
    epsilon=None, epsilon_self=None, obs_factor=None, obs_factor_self=None,
    no_report_cost=None, dat_filename=None, releasegil=False, **kwargs):
@@ -87,15 +94,11 @@ def create(mod, robot=None, adofgoal=None, lambda_=None,
       cmd += ' starttraj %s' % shquot(in_traj_data)
    if n_points is not None:
       cmd += ' n_points %d' % n_points
-   if start_tsr is not None:
-      cmd += ' start_tsr \'%s\'' % start_tsr.serialize()
    if start_cost is not None:
       if isinstance(start_cost, str):
          cmd += ' start_cost \'%s\'' % start_cost
       else:
          cmd += ' start_cost \'%s %s\'' % (start_cost[0], start_cost[1])
-   if everyn_tsr is not None:
-      cmd += ' everyn_tsr \'%s\'' % everyn_tsr.serialize()
    if use_momentum is not None and use_momentum:
       cmd += ' use_momentum'
    if use_hmc is not None and use_hmc:
@@ -117,26 +120,37 @@ def create(mod, robot=None, adofgoal=None, lambda_=None,
    if dat_filename is not None:
       cmd += ' dat_filename %s' % shquot(dat_filename)
    print 'cmd:', cmd
-   return mod.SendCommand(cmd, releasegil)
+   retval = mod.SendCommand(cmd, releasegil)
 
-def iterate(mod, run=None, n_iter=None, max_time=None, trajs_fileformstr=None,
-            releasegil=False):
+   if start_tsr is not None:
+      command = "createtsr "
+      cmd += start_tsr.serialize()
+      cmd += " endtime 0"
+      mod.SendCommand( command, releasegil )
+   if everyn_tsr is not None:
+      command = "createtsr "
+      cmd += everyn_tsr.serialize()
+      mod.SendCommand( command, releasegil )
+   return retval;
+
+def iterate(mod, run=None, n_iter=None, max_time=None,
+            trajs_fileformstr=None, releasegil=False):
+
    cmd = 'iterate'
-   if run is not None:
-      cmd += ' run %s' % run
    if n_iter is not None:
       cmd += ' n_iter %d' % n_iter
    if max_time is not None:
       cmd += ' max_time %f' % max_time
    if trajs_fileformstr is not None:
       cmd += ' trajs_fileformstr %s' % shquot(trajs_fileformstr)
+
    return mod.SendCommand(cmd, releasegil)
 
-def gettraj(mod, run=None, no_collision_check=None, no_collision_exception=None,
-            no_collision_details=None, releasegil=False):
+def gettraj(mod, run=None, no_collision_check=None,
+            no_collision_exception=None, no_collision_details=None,
+            releasegil=False):
+
    cmd = 'gettraj'
-   if run is not None:
-      cmd += ' run %s' % run
    if no_collision_check is not None and no_collision_check:
       cmd += ' no_collision_check'
    if no_collision_exception is not None and no_collision_exception:
@@ -144,12 +158,11 @@ def gettraj(mod, run=None, no_collision_check=None, no_collision_exception=None,
    if no_collision_details is not None and no_collision_details:
       cmd += ' no_collision_details'
    out_traj_data = mod.SendCommand(cmd, releasegil)
+
    return openravepy.RaveCreateTrajectory(mod.GetEnv(),'').deserialize(out_traj_data)
    
 def destroy(mod, run=None, releasegil=False):
    cmd = 'destroy'
-   if run is not None:
-      cmd += ' run %s' % run
    return mod.SendCommand(cmd, releasegil)
 
 def runchomp(mod, releasegil=False, **kwargs):
@@ -189,3 +202,32 @@ def runchomp(mod, releasegil=False, **kwargs):
       releasegil=releasegil)
    destroy(mod, run=run, releasegil=releasegil)
    return traj
+
+def execute(mod, releasegil=False, **kwargs):
+    cmd = 'execute'
+    mod.SendCommand( cmd, releasegil )
+
+     
+def playback(mod, time=None, releasegil=False, **kwargs):
+    cmd = "playback"
+    if time is not None:
+        cmd += ' time %f' %time
+
+    mod.SendCommand( cmd, releasegil )
+    
+def viewtsr(mod, index=None, releasegil=False, **kwargs):
+    cmd = 'viewtsr' 
+
+    if index is not None:
+        cmd += " %d" % index
+    
+    mod.SendCommand( cmd, releasegil )
+
+def removeconstraint(mod, index=None, releasegil=False, **kwargs):
+    cmd = 'removeconstraint' 
+
+    if index is not None:
+        cmd += " %d" % index
+    
+    mod.SendCommand( cmd, releasegil )
+

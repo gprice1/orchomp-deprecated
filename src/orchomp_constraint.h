@@ -36,11 +36,18 @@ class UnifiedConstraint : public chomp::Constraint{
 class ORTSRConstraint : public chomp::TSRConstraint {
   public:
     mod * module;
+    const int ee_link_index;
 
-    ORTSRConstraint( mod * module, chomp::Transform & pose_0_w, 
-                     chomp::MatX & Bw, chomp::Transform & pose_w_e ) :
-         TSRConstraint( pose_0_w, Bw, pose_w_e ),
-         module( module ) {}
+    //TODO These do nothing right now.
+    const std::string body_name;
+    const std::string link_name;
+
+    ORTSRConstraint( mod * module, int manip_index,
+                     chomp::Transform & pose_0_w, 
+                     chomp::MatX & Bw,
+                     chomp::Transform & pose_w_e,
+                     std::string body_name="NULL",
+                     std::string link_name="NULL"); 
 
     //this function takes in a robot state, qt, and returns the position of
     // the relevant end-effector in the world frame. This is equivalent
