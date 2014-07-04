@@ -42,9 +42,9 @@ def computedistancefield(mod, kinbody=None, cube_extent=None, aabb_padding=None,
    cmd = 'computedistancefield'
    if kinbody is not None:
       if hasattr(kinbody,'GetName'):
-         cmd += ' kinbody %s' % shquot(kinbody.GetName())
+         cmd += ' kinbody ' + kinbody.GetName()
       else:
-         cmd += ' kinbody %s' % shquot(kinbody)
+         cmd += ' kinbody ' + kinbody
    if cube_extent is not None:
       cmd += ' cube_extent %f' % cube_extent
    if aabb_padding is not None:
@@ -82,13 +82,13 @@ def create(mod, robot=None, adofgoal=None, lambda_=None,
    cmd = 'create'
    if robot is not None:
       if hasattr(robot,'GetName'):
-         cmd += ' robot %s' % shquot(robot.GetName())
+         cmd += ' robot ' + robot.GetName()
       else:
-         cmd += ' robot %s' % shquot(robot)
+         cmd += ' robot ' + robot
    if adofgoal is not None:
-      cmd += ' adofgoal %s' % shquot(' '.join([str(v) for v in adofgoal]))
+      cmd += ' adofgoal ' + ' '.join([str(v) for v in adofgoal])
    if lambda_ is not None:
-      cmd += ' lambda %0.04f' % lambda_
+      cmd += ' lambda ' + str( lambda_ )
    if starttraj is not None:
       in_traj_data = starttraj.serialize(0) # options
       cmd += ' starttraj %s' % shquot(in_traj_data)
@@ -158,7 +158,7 @@ def gettraj(mod, run=None, no_collision_check=None,
    if no_collision_details is not None and no_collision_details:
       cmd += ' no_collision_details'
    out_traj_data = mod.SendCommand(cmd, releasegil)
-
+   
    return openravepy.RaveCreateTrajectory(mod.GetEnv(),'').deserialize(out_traj_data)
    
 def destroy(mod, run=None, releasegil=False):

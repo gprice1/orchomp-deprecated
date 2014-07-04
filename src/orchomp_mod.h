@@ -106,14 +106,14 @@ public:
 
     //a basic constructor to initialize values
     ChompInfo() :
-        alpha(0.1), obstol(0.01), t_total(1.0), gamma(0.1),
+        alpha(0.1), obstol(0.0001), t_total(1.0), gamma(0.1),
         epsilon( 0.1 ), epsilon_self( 0.01 ), obs_factor( 0.7 ),
         obs_factor_self( 0.3 ), jointPadding( 0.001 ),
         timeout_seconds( -1.0),
-        n(0), n_max(0),
+        n(25), n_max(100),
         min_global_iter( 0 ), max_global_iter( size_t(-1) ), 
         min_local_iter( 0 ), max_local_iter( size_t(-1)), doGlobal( true ),
-        doLocal( false), doObserve( false ), noFactory (false),
+        doLocal( true ), doObserve( true ), noFactory (false),
         noCollider( false ), noSelfCollision( false ),
         noEnvironmentalCollision( false )
         {}
@@ -186,55 +186,58 @@ public:
     ///////////////The following functions are in orchomp_mod.cpp
 
     //visualize the collision geometry 
-    int viewspheres(std::ostream & sout, std::istream& sinput);
+    bool viewspheres(std::ostream & sout, std::istream& sinput);
 
     //compute the distance field for use in collision detection, and
     //   descending the gradient out of collision
-    int computedistancefield(std::ostream & sout, std::istream& sinput);
+    bool computedistancefield(std::ostream & sout, std::istream& sinput);
     
     //visualize a slice out of a signed distance field.
-    int visualizeslice(std::ostream& sout, std::istream& sinput);
+    bool visualizeslice(std::ostream& sout, std::istream& sinput);
 
     // NOTE : Find out what this is supposed to do
-    int addfield_fromobsarray(std::ostream & sout, std::istream& sinput);
+    bool addfield_fromobsarray(std::ostream & sout, std::istream& sinput);
 
     //create a chomp run, to prepare for running chomp.
-    int create(std::ostream & sout, std::istream& sinput);
+    bool create(std::ostream & sout, std::istream& sinput);
 
     //GO through one iteration of chomp
-    int iterate(std::ostream & sout, std::istream& sinput);
+    bool iterate(std::ostream & sout, std::istream& sinput);
 
     //Get the current trajectory
-    int gettraj(std::ostream & sout, std::istream& sinput);
+    bool gettraj(std::ostream & sout, std::istream& sinput);
 
     //destroy the current chomp iteration.
-    int destroy(std::ostream & sout, std::istream& sinput);
+    bool destroy(std::ostream & sout, std::istream& sinput);
    
     //execute a construsted trajectory
-    int execute(std::ostream & sout, std::istream& sinput);
+    bool execute(std::ostream & sout, std::istream& sinput);
     
     //execute a construsted trajectory
-    int playback(std::ostream & sout, std::istream& sinput);
+    bool playback(std::ostream & sout, std::istream& sinput);
     
     //add a tsr to the factory
-    int addtsr(std::ostream & sout, std::istream& sinput);
+    bool addtsr(std::ostream & sout, std::istream& sinput);
     //create a tsr, and add it to the factory. 
     //  This is identical to the above function,
     //  except that it uses a different method to parse the tsr.
-    int createtsr(std::ostream & sout, std::istream& sinput);
+    bool createtsr(std::ostream & sout, std::istream& sinput);
 
     //creates a box in the environment to visualize a given TSR.
-    int viewtsr(std::ostream & sout, std::istream& sinput);
+    bool viewtsr(std::ostream & sout, std::istream& sinput);
     
     //Remove a constraint from the list of constraints 
-    int removeconstraint(std::ostream & sout, std::istream& sinput);
+    bool removeconstraint(std::ostream & sout, std::istream& sinput);
     
     //view the collision geometry of the robot at a given robot
     //  configuration
-    int viewspheresVec( const chomp::MatX & q,
+    bool viewspheresVec( const chomp::MatX & q,
                         const std::vector< OpenRAVE::dReal > & vec,
                         double time);
- 
+    
+    //print out the parameters of the current run of chomp.
+    void printChompInfo();
+
     //constructor that registers all of the commands to the openRave
     //   command line interface.
     mod(OpenRAVE::EnvironmentBasePtr penv);

@@ -84,7 +84,7 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
  */
 
 
-int mod::playback(std::ostream& sout, std::istream& sinput)
+bool mod::playback(std::ostream& sout, std::istream& sinput)
 {
     
     double time = -1;
@@ -105,10 +105,10 @@ int mod::playback(std::ostream& sout, std::istream& sinput)
 
     }
 
-    return 0;
+    return true;
 }
 //view the collision geometry.
-int mod::viewspheres(std::ostream& sout, std::istream& sinput)
+bool mod::viewspheres(std::ostream& sout, std::istream& sinput)
 {
 
     
@@ -158,11 +158,11 @@ int mod::viewspheres(std::ostream& sout, std::istream& sinput)
 
         environment->Add( sbody );
     }
-    return 0;
+    return true;
 }
 
 
-int mod::removeconstraint(std::ostream& sout, std::istream& sinput){
+bool mod::removeconstraint(std::ostream& sout, std::istream& sinput){
 
     size_t index = 0;
 
@@ -180,10 +180,10 @@ int mod::removeconstraint(std::ostream& sout, std::istream& sinput){
                   std::endl;
     }
 
-    return 0;
+    return true;
 }
 
-int mod::createtsr( std::ostream& sout, std::istream& sinput){
+bool mod::createtsr( std::ostream& sout, std::istream& sinput){
     
     ORTSRConstraint * c = parseTSR( sinput );
     
@@ -206,10 +206,10 @@ int mod::createtsr( std::ostream& sout, std::istream& sinput){
     factory->addConstraint( c, starttime, endtime );
     tsrs.push_back( c );
 
-    return 0;
+    return true;
 }
 
-int mod::addtsr(std::ostream& sout, std::istream& sinput){
+bool mod::addtsr(std::ostream& sout, std::istream& sinput){
     
 
     OpenRAVE::EnvironmentMutex::scoped_lock
@@ -290,11 +290,11 @@ int mod::addtsr(std::ostream& sout, std::istream& sinput){
     factory->addConstraint( c, starttime, endtime );
     tsrs.push_back( c );
 
-    return 0;
+    return true;
 }
 
 
-int mod::viewtsr(std::ostream & sout, std::istream& sinput){
+bool mod::viewtsr(std::ostream & sout, std::istream& sinput){
      OpenRAVE::EnvironmentMutex::scoped_lock
                                     lockenv(environment->GetMutex());
 
@@ -335,12 +335,12 @@ int mod::viewtsr(std::ostream & sout, std::istream& sinput){
 
     debugStream << "Done" << std::endl;
 
-    return 1;
+    return true;
 }
 
 
 //view the collision geometry. .
-int mod::viewspheresVec(const chomp::MatX & q,
+bool mod::viewspheresVec(const chomp::MatX & q,
                         const std::vector< OpenRAVE::dReal > & vec, 
                         double time)
 {
@@ -357,7 +357,7 @@ int mod::viewspheresVec(const chomp::MatX & q,
     if ( !sphere_collider ) { 
         std::cout << "There is no sphere collider, so viewing the" 
                   << " spheres is impossible" << std::endl;
-        return 0;
+        return true;
     }
     
     char text_buf[1024];
@@ -434,7 +434,7 @@ int mod::viewspheresVec(const chomp::MatX & q,
         environment->Remove( bodies[i] );
     }
     
-    return 0;
+    return true;
 }
 
 
@@ -450,7 +450,7 @@ int mod::viewspheresVec(const chomp::MatX & q,
  //         1. It is lacking the necessary libraries for computing
  //         2. Even if the libraries were correct, it is unlikely to work
  //             with the current chomp style of gradients
-int mod::computedistancefield(std::ostream& sout, std::istream& sinput)
+bool mod::computedistancefield(std::ostream& sout, std::istream& sinput)
 {
     
     //TODO uncomment the lock environment line.
@@ -463,11 +463,11 @@ int mod::computedistancefield(std::ostream& sout, std::istream& sinput)
     //  That seems peculiar.
     
 
-    return 0;
+    return true;
 }
 
 
-int mod::visualizeslice(std::ostream& sout, std::istream& sinput)
+bool mod::visualizeslice(std::ostream& sout, std::istream& sinput)
 {
     
     //lock the environment
@@ -500,15 +500,15 @@ int mod::visualizeslice(std::ostream& sout, std::istream& sinput)
         }
     }
 
-    return 0;
+    return true;
 }
 
 
-int mod::addfield_fromobsarray(std::ostream& sout, std::istream& sinput)
+bool mod::addfield_fromobsarray(std::ostream& sout, std::istream& sinput)
 {
     parseAddFieldFromObsArray( sout,  sinput);
    
-    return 0;
+    return true;
 
 }
 
@@ -520,7 +520,7 @@ int mod::addfield_fromobsarray(std::ostream& sout, std::istream& sinput)
  * uses the active dofs of the passed robot
  * initialized with a straight-line trajectory
  * */
-int mod::create(std::ostream& sout, std::istream& sinput)
+bool mod::create(std::ostream& sout, std::istream& sinput)
 {
     //get the lock for the environment
     OpenRAVE::EnvironmentMutex::scoped_lock lockenv(
@@ -546,6 +546,9 @@ int mod::create(std::ostream& sout, std::istream& sinput)
         paddedUpperJointLimits[i] = upperJointLimits[i] - interval;
         paddedLowerJointLimits[i] = lowerJointLimits[i] + interval;
     }
+    
+    clampToLimits( q0 );
+    clampToLimits( q1 );
 
     assert( isWithinLimits( q0 ) );
     assert( isWithinLimits( q1 ) );
@@ -577,20 +580,40 @@ int mod::create(std::ostream& sout, std::istream& sinput)
                                 sphere_collider, info.gamma);
     }
     
-    //if we want a debug observer, then give chomp the
-    //  link to the observer.
-    if ( info.doObserve ){
-        chomper->observer = &observer;
-    }
     
     std::cout << "Done Creating" << std::endl;
     
-    return 0;
+    return true;
 }
 
 
+void mod::printChompInfo(){
+    RAVELOG_INFO( "Chomp.n_max = %f", info.n_max );
+    RAVELOG_INFO( "Chomp.alpha = %f", info.alpha );
+    RAVELOG_INFO( "Chomp.obstol = %f", info.obstol );
+    RAVELOG_INFO( "Chomp.max_global_iter = %f", info.max_global_iter );
+    RAVELOG_INFO( "Chomp.min_global_iter = %f", info.min_global_iter );
+    RAVELOG_INFO( "Chomp.min_local_iter = %f", info.min_local_iter );
+    RAVELOG_INFO( "Chomp.max_local_iter = %f", info.max_local_iter );
+    RAVELOG_INFO( "Chomp.t_total = %f", info.t_total );
+    RAVELOG_INFO( "Chomp.max_time = %f", info.timeout_seconds );
 
-int mod::iterate(std::ostream& sout, std::istream& sinput)
+    std::stringstream ss;
+    std::string configuration;
+
+    ss << q0;
+    configuration = ss.str();
+    RAVELOG_INFO( "Chomp q0 = %s ", configuration.c_str() );
+
+    //clear the string stream.
+    ss.str( std::string() ) ;
+    ss << q1;
+    configuration = ss.str();
+
+    RAVELOG_INFO( "Chomp.q1 = %s ", configuration.c_str() );
+}
+
+bool mod::iterate(std::ostream& sout, std::istream& sinput)
 {
     std::cout << "Iterating" << std::endl;
     
@@ -611,6 +634,13 @@ int mod::iterate(std::ostream& sout, std::istream& sinput)
                                 info.max_global_iter,
                                 info.max_local_iter,
                                 info.t_total, info.timeout_seconds);
+
+    printChompInfo();
+
+    if ( info.doObserve ){
+
+        chomper->observer = &observer;
+    }
     //setup the mins
     chomper->min_global_iter = info.min_global_iter;
     chomper->min_local_iter = info.min_local_iter;
@@ -629,21 +659,19 @@ int mod::iterate(std::ostream& sout, std::istream& sinput)
     //solve chomp
     chomper->solve( info.doGlobal, info.doLocal );
     
-    timer.stop( "CHOMP run" );
-    timer.coutElapsed( "CHOMP run");
+    double elapsedTime = timer.stop( "CHOMP run" );
+    
+    RAVELOG_INFO( "Chomp run took %fs\n", elapsedTime );
 
     trajectory = chomper->xi;
 
-    std::cout << "Done Iterating" << std::endl;
-    return 0;
+    RAVELOG_INFO( "Done Iterating" ); 
+    return true;
 }
 
-int mod::gettraj(std::ostream& sout, std::istream& sinput)
+bool mod::gettraj(std::ostream& sout, std::istream& sinput)
 {
     
-    //get the trajectory from the chomp.
-    trajectory = chomper->xi;
-
     std::cout << "Getting Trajectory" << std::endl;
     OpenRAVE::EnvironmentMutex::scoped_lock lockenv;
 
@@ -697,37 +725,23 @@ int mod::gettraj(std::ostream& sout, std::istream& sinput)
     std::vector< OpenRAVE::dReal > endState;
     getStateAsVector( q1, endState );
 
-    //insert the start state into the trajectory
+    //insert the end state into the trajectory
     trajectory_ptr->Insert( trajectory.rows(), endState );
 
 
-    //this is about changing the timing or something
-    /*
-       OpenRAVE::planningutils::RetimeActiveDOFTrajectory
-                (traj_ptr, boostrobot, false, 0.2, 0.2,
-                 "LinearTrajectoryRetimer","");
-    */
-    
-    //TODO : check for collisions
-    
-    debugStream << "Retiming Trajectory" << std::endl;
+    RAVELOG_INFO( "Retiming Trajectory" );
     //this times the trajectory so that it can be
     //  sent to a planner
     OpenRAVE::planningutils::RetimeActiveDOFTrajectory(
                              trajectory_ptr, robot, false, 0.2, 0.2,
-                             "LinearTrajectoryRetimer");
-
-    debugStream << "Serializing trajectory output" << std::endl; 
-    //serialize the trajectory and send it over the 
-    //  output stream.
+                             "LinearTrajectoryRetimer","");
+    
+    //TODO : check for collisions
     trajectory_ptr->serialize( sout );
 
-    std::cout << "Done Getting Trajectory" << std::endl;
-
-
-    return 0;
+    return true;
 }
-int mod::execute(std::ostream& sout, std::istream& sinput){
+bool mod::execute(std::ostream& sout, std::istream& sinput){
 
     std::cout << "Executing" << std::endl;
     //get the lock for the environment
@@ -744,18 +758,18 @@ int mod::execute(std::ostream& sout, std::istream& sinput){
     }
     
     std::cout << "Done Executing" << std::endl;
-    return 0;
+    return true;
         
 }
 
-int mod::destroy(std::ostream& sout, std::istream& sinput){
+bool mod::destroy(std::ostream& sout, std::istream& sinput){
     
     if (chomper){         delete chomper; }
     if (sphere_collider){ delete sphere_collider; }
     if (factory){         delete factory;}
     if (collisionHelper){ delete collisionHelper; }
 
-    return 0;
+    return true;
 }
 
 
@@ -806,15 +820,17 @@ void mod::getSpheres()
 
         //get the spheres of the body by creating an xml reader to
         //  extract the spheres from the xml files of the objects
-        boost::shared_ptr<kdata> data_reader = 
-            boost::dynamic_pointer_cast<kdata>
+        boost::shared_ptr<orchomp::kdata> data_reader = 
+            boost::dynamic_pointer_cast<orchomp::kdata>
                 (body->GetReadableInterface("orcdchomp"));
          
         //bail if there is no orcdchomp data.
         if (data_reader.get() == NULL ) {
-            debugStream <<"Failed to get: " << body->GetName() << std::endl;
-            throw OpenRAVE::openrave_exception(
-                "kinbody does not have a <orcdchomp> tag defined!");
+            std::string error = "Kinbody called "
+                              + body->GetName() 
+                              + " does not have a <orcdchomp> tag defined.";
+            
+            throw OpenRAVE::openrave_exception(error);
         }
         
         

@@ -131,15 +131,20 @@ void mod::parseRobot( std::string & robot_name ){
         throw OpenRAVE::openrave_exception(
                 "Failed to get robot");
     }
+
     active_indices = robot->GetActiveDOFIndices();
     robot->GetActiveDOFLimits( lowerJointLimits, upperJointLimits);
     n_dof = active_indices.size();
  
-    std::cout << "Active Indices: " ;
+    std::stringstream ss;
+    std::string active = "Active Indices: " ;
+
     for ( size_t i = 0; i < active_indices.size(); i ++ ){
-        std::cout << active_indices[i];
+        ss << active_indices[i] << " ";
     }
-    std::cout << std::endl;
+
+    active += ss.str() + "\n";
+    RAVELOG_INFO( active );
 
     if (!robot.get()) {
         throw OpenRAVE::openrave_exception(
@@ -156,10 +161,14 @@ void mod::parsePoint( std::istream& sinput, chomp::MatX & point ){
 
     point.resize( 1, active_indices.size() );
     for ( size_t i = 0; i <active_indices.size() ; i ++ ){
-        sinput >> point(i);
+        if (sinput.eof() ){
+            RAVELOG_ERROR(
+                "Not enough values in input stream for parsePoint" );
+            throw OpenRAVE::openrave_exception("Bad arguments!");
+        }else {
+            sinput >> point(i);
+        }
     }   
-
-    debugStream << "\t\t-Added Point: " << point << std::endl;
 }
 
 void parseError( std::istream& sinput ){
@@ -177,11 +186,13 @@ void parseError( std::istream& sinput ){
 void mod::parseCreate(std::ostream & sout, std::istream& sinput)
 {
     
+
     std::string cmd;
     /* parse command line arguments */
     while (!sinput.eof () ){
         sinput >> cmd;
-        debugStream << "\t-ExecutingCommand: " << cmd << std::endl;
+        
+        RAVELOG_INFO( "Executing command: %s\n" , cmd.c_str() );
       
         if (!sinput){ break; }
         if (cmd == "loadrobot"){
@@ -189,10 +200,10 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
             sinput >> robot_location;
             debugStream << "Location: " << robot_location << std::endl;
             if (!environment.get() ){
-                debugStream << "There is no Environment" << std::endl;
+                RAVELOG_ERROR( "There is no Environment" );
             }
             environment->Load( robot_location.c_str() );
-            debugStream << "Done loading robot" << std::endl;
+            RAVELOG_INFO( "Done loading robot" );
         }
 
         else if (cmd == "robot")
@@ -271,8 +282,7 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
 
         // These are unimplemented:
         else if (cmd == "starttraj" ){
-            debugStream << "Starttraj has not been implemented"
-                        << std::endl;
+            RAVELOG_ERROR( "Starttraj has not been implemented" );
         }
         //these are depracated commands and may or may not be used for
         //  backwards compatibility.
@@ -285,27 +295,24 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
                  cmd == "everyn_tsr" ||
                  cmd == "star_cost" ||
                  cmd == "lambda" ){
-            debugStream << cmd << " has not been implemented" << std::endl;
+            RAVELOG_ERROR("%s has not been implemented", cmd.c_str() );
 
             double garbage;
             sinput >> garbage;
         }
         else if ( cmd == "use_hmc" ){
-            // do nothing
-            debugStream << "use_hmc has not been implemented" << std::endl;
+            RAVELOG_ERROR( "use_hmc has not been implemented" );
         }
         //error case
         else{ parseError( sinput );}
     }
-
+    
+    std::cout << "Done create" << std::endl ;
     if (size_t( q0.cols() )!= active_indices.size() ){
         std::vector< OpenRAVE::dReal > values;
         robot->GetDOFValues( values, active_indices );
         vectorToMat( values, q0 );
     }
-
-
-   
 }
 
 void mod::parseViewSpheres(std::ostream & sout, std::istream& sinput)
@@ -315,8 +322,8 @@ void mod::parseViewSpheres(std::ostream & sout, std::istream& sinput)
     /* parse command line arguments */
     while (!sinput.eof () ){
         sinput >> cmd;
-        debugStream << "\t-ExecutingCommand: " << cmd << std::endl;
       
+        RAVELOG_INFO( "Executing command: %s\n" , cmd.c_str() );
         if (!sinput){ break; }
         if (cmd == "robot")
         {
@@ -337,13 +344,13 @@ void mod::parseIterate(std::ostream & sout, std::istream& sinput)
     while (!sinput.eof() )
     {
         sinput >> cmd;
-        debugStream << "\t-ExecutingCommand: " << cmd << std::endl;
-      
+        RAVELOG_INFO( "Executing command: %s\n" , cmd.c_str() );
+
         if (!sinput){ break; }
 
         if (cmd =="obstol") {
             sinput >> info.obstol;
-        }else if (cmd =="n") {
+        }else if (cmd =="n" || cmd == "n_points") {
             sinput >> info.n;
         }else if (cmd =="n_max"){
             sinput >> info.n_max;
@@ -355,7 +362,8 @@ void mod::parseIterate(std::ostream & sout, std::istream& sinput)
             sinput >> info.min_global_iter;
         }else if (cmd =="min_local_iter") {
             sinput >> info.min_local_iter;
-        }else if (cmd =="max_global_iter") {
+        }else if (cmd =="max_global_iter" ||
+                  cmd =="n_iter" ) {
             sinput >> info.max_global_iter;
         }else if (cmd =="max_local_iter") {
             sinput >> info.max_local_iter;
@@ -380,7 +388,13 @@ void mod::parseIterate(std::ostream & sout, std::istream& sinput)
             }
             throw OpenRAVE::openrave_exception("Bad arguments!");
         }
+
+    }        
+
+    if ( info.n > info.n_max ){
+        info.n_max = info.n;
     }
+
 }
 void mod::parseGetTraj(std::ostream & sout, std::istream& sinput)
 {
@@ -434,10 +448,11 @@ void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
             
             //get the kinbody
             kinbody = environment->GetKinBody(name.c_str());
-
+            
             if (!kinbody.get()){
-                throw OpenRAVE::openrave_exception(
-                    "Could not find kinbody with that name!");
+                std::string error = 
+                        "Could not find kinbody named: " + name;
+                throw OpenRAVE::openrave_exception( error );
             }
         }
         else if ( cmd == "getall" ){
