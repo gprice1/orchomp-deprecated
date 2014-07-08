@@ -76,14 +76,16 @@ public:
 
     return true;
   }
-  bool isInside( vec3 & point ){
-      for ( int i = 0; i < 3; i ++ ){
-            if ( _box.p0[i] > point[i] || _box.p1[i] < point[i] ){
-                return false;
-            }
+
+  bool isInside( const vec3 & point ){
+    for ( int i = 0; i < 3; i ++ ){
+      if ( _box.p0[i] > point[i] || _box.p1[i] < point[i] ){
+        return false;
       }
-      return true;
+    }
+    return true;
   }
+
 
   vec3 center() const {
     real c = real(0.5)*_cellSize;

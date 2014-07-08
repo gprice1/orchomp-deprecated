@@ -79,7 +79,7 @@ public:
     //                Must be a value between 0 and 1, however, it 
     //                should be very low. (between 0.01 and 0).
     double alpha, obstol, t_total, gamma, epsilon, epsilon_self, obs_factor,
-           obs_factor_self, jointPadding, timeout_seconds;
+           obs_factor_self, jointPadding, timeout_seconds, hmc_lambda;
 
     //n: the initial size of the trajectory,
     //n_max: the final size,
@@ -88,7 +88,7 @@ public:
     //min_local_iter: the min # of local smoothing iterations
     //max_local_iter: the max # of local smoothing iterations
     size_t n, n_max, min_global_iter, max_global_iter,
-                     min_local_iter, max_local_iter;
+                     min_local_iter, max_local_iter, seed;
 
     //doGlobal/doLocal: whether or not global and/or local chomp should
     //                  be done.
@@ -101,21 +101,32 @@ public:
     // noSelfCollision : the collider will not check for self-collision
     // noEnvironmentalCollision : if true, the collider will not check for
     //                           collisions between the robot and environ.
+    // no_collision_check : do not do a collision check when retreiving the
+    //                     trajectory.
+    // no_collision_exception : do not spit out an exception if there is
+    //                          a collision in the final trajectory
+    // no_collision_details : do not spit out the details about the
+    //                        collisions.
     bool doGlobal, doLocal, doObserve, noFactory, noCollider, 
-         noSelfCollision, noEnvironmentalCollision;
+         noSelfCollision, noEnvironmentalCollision, 
+         no_collision_check, no_collision_exception, no_collision_details,
+         use_hmc, use_momentum, do_not_reject;
 
     //a basic constructor to initialize values
     ChompInfo() :
         alpha(0.1), obstol(0.0001), t_total(1.0), gamma(0.1),
         epsilon( 0.1 ), epsilon_self( 0.01 ), obs_factor( 0.7 ),
         obs_factor_self( 0.3 ), jointPadding( 0.001 ),
-        timeout_seconds( -1.0),
+        timeout_seconds( -1.0), hmc_lambda( 0.02 ),
         n(25), n_max(100),
         min_global_iter( 0 ), max_global_iter( size_t(-1) ), 
-        min_local_iter( 0 ), max_local_iter( size_t(-1)), doGlobal( true ),
+        min_local_iter( 0 ), max_local_iter( size_t(-1)), seed(0),
+        doGlobal( true ),
         doLocal( true ), doObserve( true ), noFactory (false),
         noCollider( false ), noSelfCollision( false ),
-        noEnvironmentalCollision( false )
+        noEnvironmentalCollision( false ), no_collision_check(false), 
+        no_collision_exception(false), no_collision_details(false),
+        use_hmc(false), use_momentum( false ), do_not_reject( true )
         {}
 };
 
@@ -149,7 +160,6 @@ public:
     //holds the active manipulator of the robot. this is used for
     //  TSR constraints.
     OpenRAVE::RobotBase::ManipulatorPtr active_manip;
-    
 
     //a vector containing the collision geometry
     std::vector< Sphere > active_spheres, inactive_spheres;
@@ -252,6 +262,8 @@ public:
 
     //Get the collision geometry from the XML files
     void getSpheres();
+
+    void checkTrajectoryForCollision();
   
   ////////////////////////////////////////////////////////////////////
   ////// these functions can be found in orchomp_mod_parse ///////////

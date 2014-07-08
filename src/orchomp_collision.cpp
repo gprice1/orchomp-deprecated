@@ -89,17 +89,23 @@ void SphereCollisionHelper::visualizeSDFSlice( size_t sdf_index,
                                                size_t slice_index,
                                                double time)
 {
+
     assert( axis < 3 && axis >=0 );
     assert( module->sdfs.size() > sdf_index && sdf_index >= 0 );
     
     const DistanceField & df = module->sdfs[ sdf_index ];
+    
+    bool was_visible = false;
+    if ( df.kinbody->IsVisible() ){
+        df.kinbody->SetVisible( false );
+        was_visible = true;
+    }
 
+    
     size_t bounds[6] = { 0,0,0, df.grid.nx(), df.grid.ny(), df.grid.nz() };
     bounds[ axis ] = slice_index;
     bounds[axis + 3] = slice_index + 1;
 
-    bounds[3 + slice_index] = 0;
-    
     std::vector< OpenRAVE::KinBodyPtr > cubes;
 
     for( size_t i = bounds[0]; i < bounds[3]; i ++ ){
@@ -107,13 +113,13 @@ void SphereCollisionHelper::visualizeSDFSlice( size_t sdf_index,
     for( size_t k = bounds[2]; k < bounds[5]; k ++ ){
 
         double dist = df.grid( i, j, k );
-        vec3 center = df.grid.cellCenter( i, j, k );
-
-        OpenRAVE::Vector color, pos( center[0], center[1], center[2] ) ;
+        OpenRAVE::Transform center;
+        df.getCenterFromIndex( i,j,k, center );
 
         cubes.resize( cubes.size() + 1 );
         
-        cubes.back() = createCube( dist, df.cube_extent, pos, sdf_index );
+        cubes.back() = createCube( dist, df.cube_extent,
+                                   center.trans, sdf_index );
 
     }
     }
@@ -137,6 +143,9 @@ void SphereCollisionHelper::visualizeSDFSlice( size_t sdf_index,
     for ( size_t i = 0; i < cubes.size() ; i ++ ){
         module->environment->Remove( cubes[i] );
     }
+
+    if ( was_visible ) { df.kinbody->SetVisible(true); }
+
 }
 
 
@@ -341,7 +350,8 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
     OpenRAVE::dReal cost_sdf(0), cost_self(0);
     
     if (!module->info.noEnvironmentalCollision){
-        cost_sdf = getSDFCollisions( current_sphere, current_pos, gradient_sdf );
+        cost_sdf = getSDFCollisions( current_sphere, current_pos,
+                                     gradient_sdf, false);
     }
 
     //fill the jacobian with zeros.

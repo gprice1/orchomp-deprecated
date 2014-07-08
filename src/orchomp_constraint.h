@@ -36,7 +36,7 @@ class UnifiedConstraint : public chomp::Constraint{
 class ORTSRConstraint : public chomp::TSRConstraint {
   public:
     mod * module;
-    const int ee_link_index;
+    int ee_link_index;
 
     //TODO These do nothing right now.
     const std::string body_name;

@@ -71,6 +71,9 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
        RegisterCommand("addtsr",
             boost::bind(&mod::addtsr,this,_1,_2),
             "playback a trajectory on a robot");
+       RegisterCommand("createtsr",
+            boost::bind(&mod::createtsr,this,_1,_2),
+            "playback a trajectory on a robot");
        RegisterCommand("removeconstraint",
             boost::bind(&mod::removeconstraint,this,_1,_2),
             "remove a tsr constraint");
@@ -223,6 +226,7 @@ bool mod::addtsr(std::ostream& sout, std::istream& sinput){
     while ( !sinput.eof() ){
         std::string cmd;
         sinput >> cmd;
+        RAVELOG_INFO( "\tExecuting SubCommand: %s\n", cmd.c_str() );
         if ( cmd == "pose_0_w" ){
             sinput >> pose_0_w_trans[0];
             sinput >> pose_0_w_trans[1];
@@ -230,7 +234,6 @@ bool mod::addtsr(std::ostream& sout, std::istream& sinput){
             sinput >> pose_0_w_rot[0];
             sinput >> pose_0_w_rot[1];
             sinput >> pose_0_w_rot[2];
-    
         }
         else if ( cmd == "pose_w_e" ){
             sinput >> pose_w_e_trans[0];
@@ -281,15 +284,26 @@ bool mod::addtsr(std::ostream& sout, std::istream& sinput){
 
     chomp::Transform pose_0_w(pose_0_w_rot, pose_0_w_trans);
     chomp::Transform pose_w_e(pose_w_e_rot, pose_w_e_trans);
-    
-    int index = active_manip->GetEndEffector()->GetIndex();
-    ORTSRConstraint * c = new ORTSRConstraint( this, 
-                                               index, 
-                                               pose_0_w,
-                                               bounds, pose_w_e );
-    factory->addConstraint( c, starttime, endtime );
-    tsrs.push_back( c );
 
+    if ( !active_manip.get() ){
+        RAVELOG_ERROR( "There is no active manip, needed for addtsr()" );
+        throw OpenRAVE::openrave_exception("Bad arguments!");
+    }
+    
+    std::string link_name = active_manip->GetEndEffector()->GetName();
+    std::string body_name = robot->GetName();
+    std::cout << "Creating TSR" << std::endl;
+    ORTSRConstraint * c = new ORTSRConstraint( this, 
+                                               -1, 
+                                               pose_0_w,
+                                               bounds, pose_w_e,
+                                               body_name, link_name);
+    std::cout << "Done creating TSR " << c << std::endl;
+    factory->addConstraint( c, starttime, endtime );
+    
+    tsrs.push_back( c );
+    
+    std::cout << "Done with tsr parsing" << std::endl;
     return true;
 }
 
@@ -453,7 +467,6 @@ bool mod::viewspheresVec(const chomp::MatX & q,
 bool mod::computedistancefield(std::ostream& sout, std::istream& sinput)
 {
     
-    //TODO uncomment the lock environment line.
     //lock the environment
     OpenRAVE::EnvironmentMutex::scoped_lock lock(environment->GetMutex());
     
@@ -554,7 +567,6 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
     assert( isWithinLimits( q1 ) );
 
 
-
     //create the sphere collider to actually 
     //  use the sphere information, and pass in its parameters.
     if ( !info.noCollider ){
@@ -571,16 +583,10 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
         sphere_collider->obs_factor_self = info.obs_factor_self;
     }
 
-    //TODO setup momentum stuff ?? maybe ?? 
-
-    //give chomp a collision helper to 
-    //deal with collision and gradients.
-    if (sphere_collider){
-        collisionHelper = new chomp::ChompCollGradHelper(
-                                sphere_collider, info.gamma);
+    if ( !info.noFactory ){
+        factory = new ORConstraintFactory( this );
     }
-    
-    
+
     std::cout << "Done Creating" << std::endl;
     
     return true;
@@ -588,35 +594,35 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
 
 
 void mod::printChompInfo(){
-    RAVELOG_INFO( "Chomp.n_max = %f", info.n_max );
-    RAVELOG_INFO( "Chomp.alpha = %f", info.alpha );
-    RAVELOG_INFO( "Chomp.obstol = %f", info.obstol );
-    RAVELOG_INFO( "Chomp.max_global_iter = %f", info.max_global_iter );
-    RAVELOG_INFO( "Chomp.min_global_iter = %f", info.min_global_iter );
-    RAVELOG_INFO( "Chomp.min_local_iter = %f", info.min_local_iter );
-    RAVELOG_INFO( "Chomp.max_local_iter = %f", info.max_local_iter );
-    RAVELOG_INFO( "Chomp.t_total = %f", info.t_total );
-    RAVELOG_INFO( "Chomp.max_time = %f", info.timeout_seconds );
+    RAVELOG_INFO( "Chomp.n_max = %d\n", info.n_max );
+    RAVELOG_INFO( "Chomp.alpha = %f\n", info.alpha );
+    RAVELOG_INFO( "Chomp.obstol = %f\n", info.obstol );
+    RAVELOG_INFO( "Chomp.max_global_iter = %d\n", info.max_global_iter );
+    RAVELOG_INFO( "Chomp.min_global_iter = %d\n", info.min_global_iter );
+    RAVELOG_INFO( "Chomp.min_local_iter = %d\n", info.min_local_iter );
+    RAVELOG_INFO( "Chomp.max_local_iter = %d\n", info.max_local_iter );
+    RAVELOG_INFO( "Chomp.t_total = %f\n", info.t_total );
+    RAVELOG_INFO( "Chomp.max_time = %f\n", info.timeout_seconds );
 
     std::stringstream ss;
     std::string configuration;
 
     ss << q0;
     configuration = ss.str();
-    RAVELOG_INFO( "Chomp q0 = %s ", configuration.c_str() );
+    RAVELOG_INFO( "Chomp q0 = %s\n", configuration.c_str() );
 
     //clear the string stream.
     ss.str( std::string() ) ;
     ss << q1;
     configuration = ss.str();
 
-    RAVELOG_INFO( "Chomp.q1 = %s ", configuration.c_str() );
+    RAVELOG_INFO( "Chomp.q1 = %s\n", configuration.c_str() );
 }
 
 bool mod::iterate(std::ostream& sout, std::istream& sinput)
 {
-    std::cout << "Iterating" << std::endl;
-    
+    RAVELOG_INFO( "Iterating\n" );
+
     //get the arguments
     parseIterate( sout,  sinput);
 
@@ -624,19 +630,32 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     //after the arguments have been collected, pass them to chomp
     createInitialTrajectory();
 
-    if ( !info.noFactory ){
-        factory = new ORConstraintFactory( this );
-    }
+
     //now that we have a trajectory, make a chomp object
     chomper = new chomp::Chomp( factory, trajectory,
                                 q0, q1, info.n_max, 
                                 info.alpha, info.obstol,
                                 info.max_global_iter,
                                 info.max_local_iter,
-                                info.t_total, info.timeout_seconds);
+                                info.t_total, info.timeout_seconds,
+                                info.use_momentum, info.hmc_lambda,
+                                info.do_not_reject);
+    
+    if ( info.seed != 0 ){
+        chomper->setHMCSeed( info.seed );
+    }
 
     printChompInfo();
 
+    //give chomp a collision helper to 
+    //deal with collision and gradients.
+    if (sphere_collider){
+        collisionHelper = new chomp::ChompCollGradHelper(
+                                sphere_collider, info.gamma);
+        chomper->ghelper = collisionHelper;
+    }
+
+    
     if ( info.doObserve ){
 
         chomper->observer = &observer;
@@ -645,8 +664,6 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     chomper->min_global_iter = info.min_global_iter;
     chomper->min_local_iter = info.min_local_iter;
 
-    //setup the collision checker.
-    chomper->ghelper = collisionHelper;
 
     //get the lock for the environment
     OpenRAVE::EnvironmentMutex::scoped_lock lock(environment->GetMutex() );
@@ -669,10 +686,69 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     return true;
 }
 
+
+void mod::checkTrajectoryForCollision(){
+
+    RAVELOG_INFO("checking trajectory for collision ...\n");
+    bool collides = false;
+
+    timer.start( "collision check" );
+
+    OpenRAVE::CollisionReportPtr report(new OpenRAVE::CollisionReport());
+
+    double total_dist = 0.0;
+
+    //get the length of the trajectory
+    for ( int i = 0; i < trajectory.rows()-1; i ++ ) 
+    {
+        
+        const chomp::MatX & point1 = trajectory.row( i );
+        const chomp::MatX & point2 = trajectory.row( i+1 );
+        
+        const chomp::MatX diff = point1 - point2;
+
+        const double val = (diff.array() * diff.array()).sum();
+            
+        total_dist += sqrt( val );
+    }
+    
+
+    const double step_dist = 0.04;
+    const double step_time = trajectory_ptr->GetDuration()
+                             *step_dist/total_dist;
+
+    for ( double time = 0.0;
+          time < trajectory_ptr->GetDuration();
+          time+=step_time)
+    {
+        std::vector< OpenRAVE::dReal > point;
+        trajectory_ptr->Sample(point, time);
+        robot->SetActiveDOFValues(point);
+        
+        if (environment->CheckCollision( robot, report) ||
+            robot->CheckSelfCollision(report))
+        {
+            collides = true;
+
+            if (!info.no_collision_details){
+                RAVELOG_ERROR("Collision: %s\n",
+                              report->__str__().c_str());
+            }
+            if (!info.no_collision_exception){
+                throw OpenRAVE::openrave_exception(
+                    "Resulting trajectory is in collision!");
+            }
+        }
+    }
+
+    if (collides){ RAVELOG_ERROR("   trajectory collides!\n"); }
+}
+
+
 bool mod::gettraj(std::ostream& sout, std::istream& sinput)
 {
     
-    std::cout << "Getting Trajectory" << std::endl;
+    RAVELOG_INFO( "Getting Trajectory\n" );
     OpenRAVE::EnvironmentMutex::scoped_lock lockenv;
 
     parseGetTraj( sout,  sinput);
@@ -681,14 +757,8 @@ bool mod::gettraj(std::ostream& sout, std::istream& sinput)
     lockenv = OpenRAVE::EnvironmentMutex::scoped_lock(
               environment->GetMutex() );
    
-
-    debugStream << "Checking Trajectory" << std::endl;
-    //check and or print the trajectory
-    //isTrajectoryWithinLimits();
-    //coutTrajectory();
-
-    //setup the openrave trajectory pointer to receive the
-    //  found trajectory.
+    
+    //construct the trajectory pointer object, and 
     trajectory_ptr = OpenRAVE::RaveCreateTrajectory(environment);
 
     if (!robot.get() ){
@@ -697,13 +767,7 @@ bool mod::gettraj(std::ostream& sout, std::istream& sinput)
     trajectory_ptr->Init(
         robot->GetActiveConfigurationSpecification());
 
-    debugStream << "Done locking environment,"
-                << " begun extracting trajectory" << std::endl;
     
-    
-    //For every state (each row is a state), extract the data,
-    //  and turn it into a vector, then give it to
-
 
     //get the start state as an openrave vector
     std::vector< OpenRAVE::dReal > startState;
@@ -729,13 +793,15 @@ bool mod::gettraj(std::ostream& sout, std::istream& sinput)
     trajectory_ptr->Insert( trajectory.rows(), endState );
 
 
-    RAVELOG_INFO( "Retiming Trajectory" );
+    RAVELOG_INFO( "Retiming Trajectory\n" );
     //this times the trajectory so that it can be
     //  sent to a planner
     OpenRAVE::planningutils::RetimeActiveDOFTrajectory(
                              trajectory_ptr, robot, false, 0.2, 0.2,
                              "LinearTrajectoryRetimer","");
     
+    if( !info.no_collision_check ){ checkTrajectoryForCollision(); }
+
     //TODO : check for collisions
     trajectory_ptr->serialize( sout );
 

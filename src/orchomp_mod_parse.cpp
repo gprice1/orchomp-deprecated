@@ -33,9 +33,6 @@
 #define CREATEPARSE 1
 namespace orchomp{
 
-
-
-
 inline void mod::getRandomState( chomp::MatX & state ){
     assert( n_dof > 0 );
     if ( size_t( state.cols()) != n_dof ){
@@ -279,29 +276,30 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
         else if (cmd == "obs_factor"){ sinput >> info.obs_factor; }
         else if (cmd == "obs_factor_self"){sinput >> info.obs_factor_self;}
         else if (cmd == "doobserve"){ info.doObserve = true;  }
-
+        else if ( cmd == "nofactory"){ info.noFactory = true;  }
+        else if ( cmd == "nocollider"){ info.noCollider = true;  }
+        else if ( cmd == "noselfcollision"){ info.noSelfCollision = true;  }
+        else if ( cmd == "noenvironmentalcollision"){
+            info.noEnvironmentalCollision = true; 
+        }   
         // These are unimplemented:
         else if (cmd == "starttraj" ){
             RAVELOG_ERROR( "Starttraj has not been implemented" );
         }
         //these are depracated commands and may or may not be used for
         //  backwards compatibility.
-        else if (cmd =="n_points") {
-            sinput >> info.n_max;
+        else if (cmd =="n_points") { sinput >> info.n_max; }
+        else if (cmd == "seed" ){ sinput >> info.seed; }
+        else if (cmd == "use_hmc"){ info.use_hmc = true;}
+        else if (cmd == "hmc_resample_lambda"){ sinput >> info.hmc_lambda;}
+        else if (cmd == "lambda" ){ 
+            sinput >> info.alpha;
+            info.alpha = 1.0/info.alpha;
+        }else if (cmd == "use_momentum" ){
+            info.use_momentum = true;
         }
-        else if (cmd == "seed" ||
-                 cmd == "use_hmc" ||
-                 cmd == "hmc_resample_lambda" ||
-                 cmd == "everyn_tsr" ||
-                 cmd == "star_cost" ||
-                 cmd == "lambda" ){
-            RAVELOG_ERROR("%s has not been implemented", cmd.c_str() );
-
-            double garbage;
-            sinput >> garbage;
-        }
-        else if ( cmd == "use_hmc" ){
-            RAVELOG_ERROR( "use_hmc has not been implemented" );
+        else if (cmd == "do_reject"){
+            info.do_not_reject = false;
         }
         //error case
         else{ parseError( sinput );}
@@ -374,20 +372,9 @@ void mod::parseIterate(std::ostream & sout, std::istream& sinput)
         else if ( cmd == "dolocal"  ){ info.doLocal   = true;  }
         else if ( cmd == "nolocal"  ){ info.doLocal   = false; }
         else if ( cmd == "doglobal" ){ info.doGlobal  = true;  } 
-        else if ( cmd == "nofactory"){ info.noFactory = true;  }
-        else if ( cmd == "nocollider"){ info.noCollider = true;  }
-        else if ( cmd == "noselfcollision"){ info.noSelfCollision = true;  }
-        else if ( cmd == "noenvironmentalcollision"){
-            info.noEnvironmentalCollision = true; 
-        }        
+     
         //error case
-        else{ 
-            while ( !sinput.eof() ){
-                RAVELOG_ERROR("argument %s not known!\n", cmd.c_str() );
-                sinput >> cmd;
-            }
-            throw OpenRAVE::openrave_exception("Bad arguments!");
-        }
+        else{ parseError( sinput ); }
 
     }        
 
@@ -398,9 +385,6 @@ void mod::parseIterate(std::ostream & sout, std::istream& sinput)
 }
 void mod::parseGetTraj(std::ostream & sout, std::istream& sinput)
 {
-    bool no_collision_check(false), 
-         no_collision_exception(false),
-         no_collision_details(false) ;
 
     std::string cmd;
     /* parse command line arguments */
@@ -409,11 +393,11 @@ void mod::parseGetTraj(std::ostream & sout, std::istream& sinput)
         
         if (!sinput){ break; }
         if (cmd == "no_collision_check"){ 
-            no_collision_check = true;
+            info.no_collision_check = true;
         }else if (cmd == "no_collision_exception"){
-            no_collision_exception = true;
+            info.no_collision_exception = true;
         }else if (cmd == "no_collision_details"){
-            no_collision_details = true; 
+            info.no_collision_details = true; 
         }
     }
 }
@@ -430,7 +414,7 @@ void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
 
     bool getall = false;
 
-    std::string cmd, cache_filename("none passed");
+    std::string cmd, cache_filename("NULL");
 
     /* parse command line arguments */
     while (!sinput.eof () ){
@@ -476,8 +460,6 @@ void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
         }
    }
    
-   //if we are not getting all of the kinbodies, and there is a kinbody,
-   //   create a new sdf object.
    if ( !getall && kinbody.get() ){
         //create new sdf object, and put it at the back of the sdfs 
         //  object.
@@ -496,7 +478,7 @@ void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
         RAVELOG_INFO("Using cache_filename |%s|.\n",
                         cache_filename.c_str());
         //create the sdf.
-        current_sdf.createField( environment );
+        current_sdf.createField( environment, cache_filename.c_str() );
    }
    else if ( !getall ){
         throw OpenRAVE::openrave_exception(
@@ -520,10 +502,10 @@ void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
             if ( cube_extent >= 0 ){ 
                 current_sdf.cube_extent = cube_extent;
             }
-
+            
             //
             current_sdf.kinbody = bodies[i];
-
+            
             RAVELOG_INFO("Using kinbody %s.\n",
                           current_sdf.kinbody->GetName().c_str());
             RAVELOG_INFO("Using aabb_padding |%f|.\n",
@@ -535,13 +517,9 @@ void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
 
             current_sdf.createField( environment );
         }
-   } 
-
-   if( cache_filename != "none passed" ){
-       debugStream << "Uploading sdf from file has not been implemented"
-                   << std::endl;
-   }
+    } 
 }
+
 void mod::parseAddFieldFromObsArray(std::ostream & sout, std::istream& sinput)
 {
 }

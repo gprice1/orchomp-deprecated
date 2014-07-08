@@ -39,7 +39,6 @@
 #include <iostream>
 #include <vector>
 #include <pthread.h>
-    
 #include "../mzcommon/TimeUtil.h"
 
 namespace chomp {
@@ -228,6 +227,30 @@ namespace chomp {
     Constraint * goalset;
     bool usingGoalSet;
     MatX goalset_coeffs;
+     
+    bool use_momentum;
+    MatX momentum_delta;
+
+    //all of the following variables are for HMC 
+    // use_hmc : are we doing hmc or not?
+    // doNotReject : if true, the energy of the system will not
+    //               be evaluated, and low energy systems will not be
+    //               rejected.
+    // hmc_lambda : the parameter that determines the frequency, and
+    //              magnitude of random resampling
+    // hmc_resample_iter : the next iteration that resampling will be
+    //                     done on
+    // old_xi : the previous xi, saved from the last resample iteration,
+    //          if rejection is on, this will be restored if the, 
+    //          energy of the trajectory does not increase.
+    // old_momentum_delta : like old_xi, this is a saved previous state,
+    //                      for use if the current trajectory is rejected.
+    // last_objective : save the last objective, for use with rejection.
+    bool use_hmc, doNotReject;
+    double hmc_lambda, previous_energy;
+    size_t hmc_resample_iter;
+    MatX old_xi, old_momentum_delta;
+    double lastObjective;
 
     Chomp(ConstraintFactory* f,
           const MatX& xi_init, // should be N-by-M
@@ -239,7 +262,10 @@ namespace chomp {
           size_t max_global_iter=size_t(-1),
           size_t max_local_iter=size_t(-1),
           double t_total=1.0,
-          double timeout_seconds=-1.0);
+          double timeout_seconds=-1.0,
+          bool use_momentum = false,
+          double hmc_lambda=-1.0,
+          bool doNotReject=true);
     
     
     ~Chomp(){
@@ -259,7 +285,24 @@ namespace chomp {
     }
     
     void initMutex();
+   
+    //setup chomp to use Monte carlo momentum stuff.
+    void setHMCSeed(unsigned long seed=0);
     
+    //resamples the momentum for the Hamiltonian Monte Carlo method.
+    void resampleMomentum();
+    
+    //checks the current HMC iteration, and rejects it if the 
+    //  energy of the system is too low.
+    bool checkForRejection();
+    
+    //samples a random momentum from the probability dist given by:
+    //  exp( -0.5*xAx )
+    void getRandomMomentum();
+    
+    //called in prepareChomp. Sets up a run of HMC.
+    void setupHMCRun();
+
     void clearConstraints();
     
     //prepares chomp to be run at a resolution level

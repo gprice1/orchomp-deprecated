@@ -11,12 +11,13 @@
 #define ZAXIS 2
 
 
+
 namespace orchomp {
 
 
 // a simple consturctor that initializes some values
 DistanceField::DistanceField() : aabb_padding(0.2), cube_extent(0.02), 
-    splitting_threshold( 100 )
+    splitting_threshold( 100 ), fill( OCTREEFILL )
 {
 }
 
@@ -63,6 +64,8 @@ bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
     //get the offset from the grid to the center of the cube.
     OpenRAVE::Transform pose_grid_cube;
     
+    const double cube_length = grid.cellSize();
+
     pose_grid_cube.trans[0] = xdist*cube_extent + x1*cube_length; 
     pose_grid_cube.trans[1] = ydist*cube_extent + y1*cube_length;
     pose_grid_cube.trans[2] = zdist*cube_extent + z1*cube_length;
@@ -79,16 +82,8 @@ bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
                                             int x, int y, int z )
 {
     
-    
-
-    OpenRAVE::Transform pose_grid_cube; 
-    pose_grid_cube.trans[0] = cube_extent + x*cube_length;
-    pose_grid_cube.trans[1] = cube_extent + y*cube_length;
-    pose_grid_cube.trans[2] = cube_extent + z*cube_length;
-
-
-    OpenRAVE::Transform world_to_cube = pose_world_grid * pose_grid_cube;
- 
+    OpenRAVE::Transform world_to_cube;
+    getCenterFromIndex( x,y,z, world_to_cube );
     bool retval = isCollided( cube, world_to_cube );
 
 
@@ -97,76 +92,96 @@ bool DistanceField::isCollided( OpenRAVE::KinBodyPtr cube,
 
 
 void DistanceField::setupGrid(size_t x, size_t y, size_t z )
-{
-
+{    
     grid.clear();
     grid.resize( x, y, z, DtGrid::AXIS_Z,
                  cube_extent * 2,
                  vec3( 0,0,0));
+
+    start_index = size_t( aabb_padding / grid.cellSize() );
+    RAVELOG_INFO( "Start index: %d\n" , start_index );
+    end_index[0] = grid.nx() - start_index;
+    end_index[1] = grid.ny() - start_index;
+    end_index[2] = grid.nz() - start_index;
+
+
 }
 
 
 //gets the transform from the origin to the center of the cell at
 //  the specified indices.
-inline void DistanceField::getCenterFromIndex( size_t x, size_t y, size_t z,
+void DistanceField::getCenterFromIndex( size_t x, size_t y, size_t z,
                                                OpenRAVE::Transform & t ) const {
 
-    OpenRAVE::Transform pose_grid_cube; 
-    pose_grid_cube.trans[0] = cube_extent + x*cube_length;
-    pose_grid_cube.trans[1] = cube_extent + y*cube_length;
-    pose_grid_cube.trans[2] = cube_extent + z*cube_length;
+    OpenRAVE::Transform pose_grid_cube;
+    vec3 center = grid.cellCenter( x,y,z );
+    pose_grid_cube.trans[0] = center[0];
+    pose_grid_cube.trans[1] = center[1];
+    pose_grid_cube.trans[2] = center[2];
     
     //get the center of the cube in the world frame.
     //pose_world_center = pose_world_grid * pose_grid_center
     t = pose_world_grid * pose_grid_cube;
 }
 
-OpenRAVE::KinBodyPtr
-DistanceField::createCube( OpenRAVE::EnvironmentBasePtr & env,
-                           OpenRAVE::Transform & pos,
-                           std::string & name)
 
+
+
+void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & env,
+                                 const std::string & filename)
 {
-
-
-    //create a cube to be used for collision detection in the world.
-    //  create an object and name that object 'cube'
-    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( env );
-
-    if ( environment->GetKinBody( name.c_str() ).get() ){ return cube; }
-    cube->SetName( name.c_str() );
-    //set the dimensions of the cube object
-    std::vector< OpenRAVE::AABB > vaabbs(1);
-    /* extents = half side lengths */
-    vaabbs[0].extents = 
-        OpenRAVE::Vector(cube_extent, cube_extent, cube_extent);
-    cube->InitFromBoxes(vaabbs, false );
-    
-    cube->SetTransform( pos );
-    //add the cube to the environment
-    env->Add( cube );
-
-    return cube;
-
-}
-
-
-void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & env )
-{
-    
-    //set the cube length.
-    cube_length = cube_extent * 2;
-    
     //get the environment
     this->environment = env;
 
-    OpenRAVE::geometry::aabb< OpenRAVE::dReal > aabb;
-/* compute aabb when object is at world origin */
+    //If the filename is not null, try to load the file
+    if ( filename != "NULL" && grid.load( filename.c_str() ) )
     {
-        OpenRAVE::KinBody::KinBodyStateSaver statesaver(kinbody);
-        kinbody->SetTransform(OpenRAVE::Transform());
-        aabb = kinbody->ComputeAABB();
+        RAVELOG_INFO("Loaded Distance field from file '%s'\n",
+                     filename.c_str() );
+
+        cube_extent = grid.cellSize() / 2;
+        computeTransforms();
+
+        if ( !isCorrectSize() ){
+
+
+            createFieldFromScratch( filename );
+        }
     }
+    else {
+        createFieldFromScratch( filename );
+    }
+}
+
+//this will 
+bool DistanceField::isCorrectSize(){
+    
+    const vec3u & dims = grid.dims();
+    
+    for ( int i = 0; i < 3; i ++ ){
+
+        RAVELOG_INFO( "SDF dim[%d] has size: %d\n", i, dims[i] ); 
+        if ( ceil((aabb.extents[i] + aabb_padding) / cube_extent)
+             != dims[i] ){
+            RAVELOG_ERROR( "Loaded distance field does "
+                            "not have the correct dimensions, "
+                            "calculating field from geometry\n" );
+            return false;
+        }
+    }
+
+    if ( cube_extent*2 != grid.cellSize() ){
+        RAVELOG_ERROR( "The value of the loaded cube_extent is not "
+                       "equal to the value of the given cube_extent\n");
+        return false;
+    }
+    return true;
+}
+         
+
+void DistanceField::createFieldFromScratch(const std::string & filename){
+
+    computeTransforms();
 
     RAVELOG_INFO("    pos: %f %f %f\n", aabb.pos[0],
                                         aabb.pos[1],
@@ -174,7 +189,7 @@ void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & env )
     RAVELOG_INFO("extents: %f %f %f\n", aabb.extents[0],
                                         aabb.extents[1],
                                         aabb.extents[2]);
-    
+
     size_t sizes[3];
 
     //compute the dimensions of the grid.
@@ -186,28 +201,8 @@ void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & env )
         
         RAVELOG_INFO("Grid Sizes [%d]: %d\n", i, sizes[i]);
     }
-    
-    //Compute the value of the lengths
-    for ( int i = 0; i < 3; i ++ ){
-        lengths[i] = sizes[i] * cube_extent * 2;
-        RAVELOG_INFO("Grid Lengths [%d]: %f\n", i, lengths[i]);
-    }
-    
-    OpenRAVE::Transform pose_kinbody_grid;
 
-    //get the pose of the voxel grid with respect to the world frame:
-    for ( size_t i = 0; i < 3; i ++ ){
-        pose_kinbody_grid.trans[i] = aabb.pos[i] - 0.5 * lengths[i];
-    }
 
-    // pose_world_grid = pose_world_kinbody * pose_ kinbody_grid;
-    pose_world_grid = kinbody->GetTransform() * pose_kinbody_grid;
-    pose_grid_world = pose_world_grid.inverse();
-
-    RAVELOG_INFO("SDF pose: %f, %f , %f\n", pose_world_grid.trans[0],
-                                            pose_world_grid.trans[1],
-                                            pose_world_grid.trans[2] );
-    
     //create a cube to do collision detection
     std::string cube_name = "unitCube";
     unitCube = createCube( environment, pose_world_grid, cube_name);
@@ -217,57 +212,59 @@ void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & env )
     //  and the gradient and distance fields
     setupGrid( sizes[0], sizes[1], sizes[2] );
 
-    size_t start, end[3];
-    start = size_t( aabb_padding / cube_length );
-    end[0] = grid.nx() - start;
-    end[1] = grid.ny() - start;
-    end[2] = grid.nz() - start;
-
-    fillGridEdges( start, end );
+    fillGridEdges();
+    
 
     RAVELOG_INFO("computing occupancy grid ...\n");
     
-    timer.start( "fill" );
-    //fill the grid utilizing various methods.
-    simplefill(start, end[0], start, end[1], start, end[2] );
 
-    RAVELOG_INFO("Time to compute SimpleFill(): %f\n" , 
-                 timer.stop( "fill" ) );
-
-    RAVELOG_INFO("Time to compute collisions for SimpleFill(): %f\n" , 
-                 timer.reset( "collision" ) );
-
-
-    timer.start( "fill" );
+    if ( fill == SIMPLEFILL ){ startSimpleFill(); }
+    else if ( fill == OCTREEFILL ){ startOctreeFill(); }
+    else if ( fill == KDTREEFILL ){ startKdtreeFill(); }
     
-    octreefill( start, end[0], start, end[1], start, end[2] );
-    
-    RAVELOG_INFO("Time to compute octreeFill(): %f\n" , 
-                 timer.stop( "fill" ) );
-
-    RAVELOG_INFO("Time to compute collisions for OctreeFill(): %f\n" , 
-                 timer.reset( "collision" ) );
-
-    
-    timer.start( "fill" );
-    
-    Bound b(  start, end[0], start, end[1], start, end[2],
-             end[0] - start, end[1] - start, end[2] - start );
-    kdtreefill( b, XAXIS ); 
-    
-    RAVELOG_INFO("Time to compute KdtreeFill(): %f\n" , 
-                 timer.stop( "fill" ) );
-
-    RAVELOG_INFO("Time to compute collisions for KdtreeFill(): %f\n" , 
-                 timer.reset( "collision" ) );
-
-
-    
-    simpleFloodFill( 0, grid.nx(), 0, grid.ny(), 0, grid.nz() );
+    //floodfill the object to make sure that hollow objects do not have
+    //  holes.
+    floodFill( 0, grid.nx(), 0, grid.ny(), 0, grid.nz() );
 
     //delete the cube , because we don't need this anymore
     environment->Remove( unitCube );
-   
+    
+    grid.computeDistsFromBinary();
+
+    if ( filename != "NULL" ){
+        RAVELOG_INFO( "Saving distance field as '%s'\n", filename.c_str());
+        grid.save( filename.c_str() );
+    }
+}
+
+void DistanceField::computeTransforms()
+{
+    /* compute aabb when object is at world origin */
+    {
+        OpenRAVE::KinBody::KinBodyStateSaver statesaver(kinbody);
+        kinbody->SetTransform(OpenRAVE::Transform());
+        aabb = kinbody->ComputeAABB();
+    }
+
+    //get the transform to the bottom left corner of the box.
+    OpenRAVE::Transform pose_kinbody_grid;
+    for ( int i = 0; i < 3 ; i ++ ){
+        pose_kinbody_grid.trans[i] = aabb.pos[i] 
+                                     - aabb.extents[i]
+                                     - aabb_padding;
+    }
+    
+    //now get the transforms from the world to the box.
+    OpenRAVE::Transform pose_world_kinbody = kinbody->GetTransform();
+
+    pose_world_grid = pose_world_kinbody * pose_kinbody_grid;
+
+    pose_grid_world = pose_world_grid.inverse();
+
+    RAVELOG_INFO("SDF pose: %f, %f , %f\n", pose_world_grid.trans[0],
+                                            pose_world_grid.trans[1],
+                                            pose_world_grid.trans[2] );
+    
 }
 
 OpenRAVE::dReal DistanceField::getDist( const OpenRAVE::Vector & pos,
@@ -280,59 +277,21 @@ OpenRAVE::dReal DistanceField::getDist( const OpenRAVE::Vector & pos,
 
     //check the bounds of the box, and if the point is not within the
     //  bounds, return huge_val;
-    for ( size_t i = 0; i < 3; i ++){
-        if ( grid_point[i] < 0 || grid_point[i] > lengths[i] ){
-            return HUGE_VAL;
-        }
+    vec3 trans( grid_point[0], grid_point[1], grid_point[2] );
+
+    if( !grid.isInside( trans )){
+        return HUGE_VAL;
     }
 
-    vec3 trans( grid_point[0],
-                grid_point[1],
-                grid_point[2] );
-    
     return grid.sample( trans, gradient );
 }
 
 
 
-OpenRAVE::KinBodyPtr DistanceField::createCube( int xdist, int ydist, int zdist )
-{
-
-    //create a cube to be used for collision detection in the world.
-    //  create an object and name that object 'cube'
-    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( environment );
-
-    std::stringstream ss;
-    ss   << kinbody->GetName() << "_"
-         << xdist << "_"
-         << ydist << "_"
-         << zdist ; 
-
-    const std::string name = ss.str();
-    cube->SetName( name.c_str() );
-
-    //set the dimensions of the cube object
-    std::vector< OpenRAVE::AABB > vaabbs(1);
-
-    /* extents = half side lengths */
-    vaabbs[0].extents = 
-        OpenRAVE::Vector(cube_extent*xdist,
-                         cube_extent*ydist,
-                         cube_extent*zdist );
-
-    cube->InitFromBoxes(vaabbs, false);
-    
-    //add the cube to the environment
-    environment->Add( cube );
-
-    return cube;
-
-}
-
 //fills the reachable area with NOCOLLISION_EXPLORED
-void DistanceField::simpleFloodFill(int x1, int x2, 
-                                    int y1, int y2,
-                                    int z1, int z2 ){
+void DistanceField::floodFill(int x1, int x2, 
+                              int y1, int y2,
+                              int z1, int z2 ){
 
     vec3u lower( x1,y1,z1 ), upper( x2,y2,z2 );
 
@@ -370,32 +329,119 @@ void DistanceField::simpleFloodFill(int x1, int x2,
         
 }
 
-void DistanceField::initVariableCube()
+//Creates cubes for use in collision detection.
+OpenRAVE::KinBodyPtr
+DistanceField::createCube( OpenRAVE::EnvironmentBasePtr & env,
+                           OpenRAVE::Transform & pos,
+                           std::string & name,
+                           bool visible)
+
+{
+
+
+    //create a cube to be used for collision detection in the world.
+    //  create an object and name that object 'cube'
+    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( env );
+
+    if ( environment->GetKinBody( name.c_str() ).get() ){ return cube; }
+    cube->SetName( name.c_str() );
+    //set the dimensions of the cube object
+    std::vector< OpenRAVE::AABB > vaabbs(1);
+    /* extents = half side lengths */
+    vaabbs[0].extents = 
+        OpenRAVE::Vector(cube_extent, cube_extent, cube_extent);
+    cube->InitFromBoxes(vaabbs, visible);
+    
+    cube->SetTransform( pos );
+    //add the cube to the environment
+    env->Add( cube );
+
+    return cube;
+
+}
+
+
+OpenRAVE::KinBodyPtr DistanceField::createCube( int xdist, int ydist, int zdist )
 {
 
     //create a cube to be used for collision detection in the world.
     //  create an object and name that object 'cube'
-    variableCube = RaveCreateKinBody( environment );
+    OpenRAVE::KinBodyPtr cube = RaveCreateKinBody( environment );
 
+    std::stringstream ss;
+    ss   << kinbody->GetName() << "_"
+         << xdist << "_"
+         << ydist << "_"
+         << zdist ; 
 
-    const std::string name = "variableCube";
-    variableCube->SetName( name.c_str() );
+    const std::string name = ss.str();
+    cube->SetName( name.c_str() );
 
     //set the dimensions of the cube object
-    variableCubeGeometry.resize(1);
+    std::vector< OpenRAVE::AABB > vaabbs(1);
 
+    /* extents = half side lengths */
+    vaabbs[0].extents = 
+        OpenRAVE::Vector(cube_extent*xdist,
+                         cube_extent*ydist,
+                         cube_extent*zdist );
+
+    cube->InitFromBoxes(vaabbs, false);
+    
     //add the cube to the environment
-    environment->Add( variableCube );
+    environment->Add( cube );
+
+    return cube;
 
 }
 
-void DistanceField::resizeVariableCube( int x, int y, int z ){
+void DistanceField::startSimpleFill(){
+    timer.start( "fill" );
+    //fill the grid utilizing various methods.
+    simplefill(start_index, end_index[0],
+               start_index, end_index[1],
+               start_index, end_index[2] );
 
-    variableCubeGeometry[0].extents[0] = x * cube_extent;
-    variableCubeGeometry[0].extents[1] = y * cube_extent;
-    variableCubeGeometry[0].extents[2] = z * cube_extent;
+    RAVELOG_INFO("Time to compute SimpleFill(): %f\n" , 
+                 timer.stop( "fill" ) );
 
-    variableCube->InitFromBoxes( variableCubeGeometry, false );
+    RAVELOG_INFO("Time to compute collisions for SimpleFill(): %f\n" , 
+                 timer.reset( "collision" ) );
+
+}
+void DistanceField::startOctreeFill(){
+    timer.start( "fill" );
+    
+    octreefill( start_index, end_index[0], 
+                start_index, end_index[1], 
+                start_index, end_index[2] );
+    
+    RAVELOG_INFO("Time to compute octreeFill(): %f\n" , 
+                 timer.stop( "fill" ) );
+
+    RAVELOG_INFO("Time to compute collisions for OctreeFill(): %f\n" , 
+                 timer.reset( "collision" ) );
+
+}
+
+
+void DistanceField::startKdtreeFill(){
+    timer.start( "fill" );
+    
+    Bound b(start_index, end_index[0], 
+            start_index, end_index[1], 
+            start_index, end_index[2],
+            end_index[0] - start_index,
+            end_index[1] - start_index,
+            end_index[2] - start_index );
+
+    kdtreefill( b, XAXIS ); 
+    
+    RAVELOG_INFO("Time to compute KdtreeFill(): %f\n" , 
+                 timer.stop( "fill" ) );
+
+    RAVELOG_INFO("Time to compute collisions for KdtreeFill(): %f\n" , 
+                 timer.reset( "collision" ) );
 
 }
 
@@ -416,25 +462,44 @@ void DistanceField::setGrid( int x1, int x2, int y1, int y2, int z1, int z2, int
 //  areas to no collision.
 //There is overlap in these areas, so do not double set them for
 //  efficiency reasons
-void DistanceField::fillGridEdges( size_t start, size_t * end ){
-    
+void DistanceField::fillGridEdges(){
+
+ 
     //fill the z=0 face.
-    setGrid( 0, grid.nx(), 0, grid.ny(), 0, start, NOCOLLISION );
+    setGrid( 0, grid.nx(), 
+             0, grid.ny(), 
+             0, start_index,
+             NOCOLLISION );
 
     //fill the z=grid.nz() face.
-    setGrid( 0, grid.nx(), 0, grid.ny(), end[2], grid.nz() , NOCOLLISION );
+    setGrid( 0, grid.nx(),
+             0, grid.ny(), 
+             end_index[2], grid.nz() , 
+             NOCOLLISION );
 
     //fill the y=0 face 
-    setGrid( 0, grid.nx(), 0, start, start, end[2], NOCOLLISION);
+    setGrid( 0, grid.nx(), 
+             0, start_index, 
+             start_index, end_index[2], 
+             NOCOLLISION);
     
     //fill the y =grid.ny face.
-    setGrid( 0, grid.nx(), end[1], grid.ny(), start, end[2], NOCOLLISION );
+    setGrid( 0, grid.nx(),
+             end_index[1], grid.ny(),
+             start_index, end_index[2],
+             NOCOLLISION );
     
     //fill the x = 0 face
-    setGrid( 0, start, start, end[1], start, end[2], NOCOLLISION );
+    setGrid( 0          , start_index,
+             start_index, end_index[1], 
+             start_index, end_index[2],
+             NOCOLLISION );
 
     //fill the x = grid.nx face
-    setGrid( end[0], grid.nx(), start, end[1], start, end[2], NOCOLLISION );
+    setGrid( end_index[0], grid.nx(),
+             start_index, end_index[1],
+             start_index, end_index[2],
+             NOCOLLISION );
 }
 
 
@@ -464,11 +529,10 @@ void DistanceField::simplefill(size_t x1, size_t x2,
             grid(i,j,k) = COLLISION;
             
             /*
-            //TODO remove this
             std::stringstream ss;
             ss << kinbody->GetName() << "_" << i << "_" << j << "_" << k;
             std::string nameofthecube = ss.str();
-            createCube( environment, world_to_cube, nameofthecube  );
+            createCube( environment, world_to_cube, nameofthecube, true  );
             */
         }else {
             //If there is no collision, set the value to -1.

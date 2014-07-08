@@ -18,8 +18,11 @@ class Timer{
         std::string name;
         struct timespec tic, toc;
         double total, elapsed;
+        unsigned int count;
+        bool isStopped;
         
-        single_timer(std::string & name) : name( name ), total( 0.0 ){}
+        single_timer(std::string & name) : name( name ), total( 0.0 ),
+                                           count( 0 ), isStopped( true ){}
     };
 
     std::vector< single_timer > timers;
@@ -68,6 +71,7 @@ class Timer{
             timers.push_back( timer );
             index = timers.size() - 1;
         }
+        timers[ index ].isStopped = false;
         clock_gettime(CLOCK_THREAD_CPUTIME_ID, &(timers[index].tic));
     }
     double stop( std::string name ){
@@ -82,6 +86,8 @@ class Timer{
 
         timers[index].elapsed = CD_OS_TIMESPEC_DOUBLE(&(timers[index].toc));
         timers[index].total += timers[index].elapsed;
+        timers[index].count ++;
+        timers[index].isStopped = true;
         return timers[index].elapsed;
     }
 
@@ -98,6 +104,53 @@ class Timer{
         int index = getIndex( name );
         if ( !timerExists( name, index ) ){ return 0.0;}
         return timers[index].total;
+    }
+    
+    //returns true if the timer is already in a start state, elsewise,
+    //  it is started.
+    bool tryStart( std::string name ){
+        int index = getIndex( name );
+
+        if ( index < 0 ){
+            single_timer timer( name );
+            timers.push_back( timer );
+            index = timers.size() - 1;
+        }
+
+        if ( timers[ index ].isStopped ){
+            timers[ index ].isStopped = false;
+            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &(timers[index].tic));
+            return false;
+        }
+
+        return false;
+    }
+
+    //returns the elapsed time if if the timer is already in a
+    //  stopped state, elsewise, it is started.
+    bool tryStop( std::string name ){
+        int index = getIndex( name );
+        if ( !timerExists( name, index ) ){ return 0.0;}
+        if ( timers[ index ].isStopped ){
+            return true;
+        }
+
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &(timers[index].toc));
+
+        CD_OS_TIMESPEC_SUB(&(timers[index].toc), &(timers[index].tic));
+
+        timers[index].elapsed = CD_OS_TIMESPEC_DOUBLE(&(timers[index].toc));
+        timers[index].total += timers[index].elapsed;
+        timers[index].count ++;
+        timers[index].isStopped = true;
+
+        return false;
+    }
+
+    unsigned int getCount( std::string name ){
+        int index = getIndex( name );
+        if ( !timerExists( name, index ) ){ return 0.0;}
+        return timers[index].count;
     }
 
     void wait( double time ){

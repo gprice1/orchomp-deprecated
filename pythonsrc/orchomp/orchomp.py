@@ -50,7 +50,7 @@ def computedistancefield(mod, kinbody=None, cube_extent=None, aabb_padding=None,
    if aabb_padding is not None:
       cmd += ' aabb_padding %f' % aabb_padding
    if cache_filename is not None:
-      cmd += ' cache_filename %s' % shquot(cache_filename)
+      cmd += ' cache_filename %s' % cache_filename
    print 'cmd:', cmd
    return mod.SendCommand(cmd, releasegil)
 
@@ -59,17 +59,17 @@ def addfield_fromobsarray(mod, kinbody=None, obsarray=None, sizes=None, lengths=
    cmd = 'addfield_fromobsarray'
    if kinbody is not None:
       if hasattr(kinbody,'GetName'):
-         cmd += ' kinbody %s' % shquot(kinbody.GetName())
+         cmd += ' kinbody %s' % kinbody.GetName()
       else:
-         cmd += ' kinbody %s' % shquot(kinbody)
+         cmd += ' kinbody %s' % kinbody
    if obsarray is not None:
       cmd += ' obsarray %s' % obsarray
    if sizes is not None:
-      cmd += ' sizes %s' % shquot(' '.join([str(v) for v in sizes]))
+      cmd += ' sizes %s' % ' '.join([str(v) for v in sizes])
    if lengths is not None:
-      cmd += ' lengths %s' % shquot(' '.join([str(v) for v in lengths]))
+      cmd += ' lengths %s' % ' '.join([str(v) for v in lengths])
    if pose is not None:
-      cmd += ' pose %s' % shquot(' '.join([str(v) for v in pose]))
+      cmd += ' pose %s' % ' '.join([str(v) for v in pose])
    print 'cmd:', cmd
    return mod.SendCommand(cmd, releasegil)
 

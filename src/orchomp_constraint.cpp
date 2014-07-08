@@ -63,10 +63,54 @@ ORTSRConstraint::ORTSRConstraint(mod * module, int manip_index,
                                  std::string link_name) :
      TSRConstraint( pose_0_w, Bw, pose_w_e ),
      module( module ), 
-     ee_link_index( module->robot->GetManipulators()[manip_index]
-                          ->GetEndEffector()->GetIndex() ),
      body_name( body_name ), link_name( link_name )
 {
+    
+    if ( manip_index >= 0 ){
+        const std::vector< OpenRAVE::RobotBase::ManipulatorPtr > & manips = 
+                                    module->robot->GetManipulators();
+
+        //if the manip is outside of the correct range, throw an error
+        if ( int( manips.size() ) <= manip_index ){
+            RAVELOG_ERROR( "There is no manipulator with index: %d\n",
+                            manip_index );
+            throw OpenRAVE::openrave_exception( "Bad arguments!");
+        }else {
+            ee_link_index = manips[manip_index]->GetEndEffector()
+                                               ->GetIndex();
+        }
+
+    }
+    
+    else if (body_name != "NULL" && link_name != "NULL" ){
+        OpenRAVE::KinBodyPtr body = module->environment
+                                          ->GetKinBody(body_name);
+        if (body.get()){
+            OpenRAVE::KinBody::LinkPtr link = body->GetLink(link_name);
+            if (link.get() ){
+                ee_link_index = link->GetIndex();
+            }
+            else {
+                RAVELOG_ERROR("There is no link named |%s| on body |%s|\n",
+                              link_name.c_str(), body_name.c_str() );
+                throw OpenRAVE::openrave_exception( "Bad arguments!");
+            }
+        }
+
+        else {
+            RAVELOG_ERROR( "There is no body named: %s\n",
+                            link_name.c_str() );
+            throw OpenRAVE::openrave_exception( "Bad arguments!");
+        }
+    }
+
+    //handle the case when both are invalid
+    else {
+        RAVELOG_ERROR( "There is no valid manipulator index or"
+                       " valid body and link name\n" );
+        throw OpenRAVE::openrave_exception( "Bad arguments!");
+    }
+
 }
 
 

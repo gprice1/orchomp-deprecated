@@ -4,8 +4,8 @@ project( orchomp )
 set( CMAKE_BUILD_TYPE Debug)
 
 #$ cmake -DCMAKE_BUILD_TYPE="Debug" .
-set(CMAKE_C_FLAGS_DEBUG "-O")
-set(CMAKE_CXX_FLAGS_DEBUG "-O")
+set(CMAKE_C_FLAGS_DEBUG "-O -g")
+set(CMAKE_CXX_FLAGS_DEBUG "-O -g")
 
 #$ cmake -DCMAKE_BUILD_TYPE="Release" 
 set(CMAKE_C_FLAGS_RELEASE "-O3")

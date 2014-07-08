@@ -48,19 +48,16 @@ class DistanceField{
     } Bound;
 
 public:
-     
+    
     //the kinematic body that the Distance field branches from.
-    OpenRAVE::KinBodyPtr kinbody;
-
-    OpenRAVE::KinBodyPtr unitCube, variableCube;
-    std::vector< OpenRAVE::AABB > variableCubeGeometry;
+    OpenRAVE::KinBodyPtr kinbody, unitCube;
 
     OpenRAVE::EnvironmentBasePtr environment;
 
     //aabb_padding : the padding for the bounding box,
     //cube_extent : half of the width/height/depth of a voxel cell
     //lengths : the height, width, and depth of the entire grid
-    double aabb_padding, cube_extent, cube_length, lengths[3];
+    double aabb_padding, cube_extent;
 
     //the transform from the world origin to the field
     OpenRAVE::Transform pose_world_grid, pose_grid_world;
@@ -68,29 +65,55 @@ public:
     //the transform from the bottom left corner to the middle of the
     //cube
     OpenRAVE::Vector grid_center;
-
-    void initVariableCube();
-    void resizeVariableCube( int x, int y, int z );
-
+    
     DtGrid grid;
 
+    int splitting_threshold;
+    
     //PUBLIC FUNCTIONS:
 
     // a simple constructor that just initializes some values.
     DistanceField();
     
     //the main function that creates the distance field
-    void createField( OpenRAVE::EnvironmentBasePtr & environment );
+    void createField( OpenRAVE::EnvironmentBasePtr & environment,
+                      const std::string & filename="NULL");
     
     ~DistanceField(){}
 
     OpenRAVE::dReal getDist( const OpenRAVE::Vector & pos ,
                              vec3 & gradient);
     
-    int splitting_threshold;
+
+    //gets the transform from the origin to the center of the cell at
+    //  the specified indices.
+    void getCenterFromIndex( size_t x, size_t y, size_t z,
+                           OpenRAVE::Transform & t ) const;    
+
 
 private:
 
+    OpenRAVE::geometry::aabb< OpenRAVE::dReal > aabb;
+    
+    enum fill_t { SIMPLEFILL,
+                  OCTREEFILL,
+                  KDTREEFILL,
+                };
+    
+    fill_t fill;
+    
+    bool isCorrectSize();
+
+    //computes a distance field from the geometry of the object
+    void createFieldFromScratch(const std::string & filename);
+
+    //compute the pose_world_grid and pose_grid_world transforms
+    void computeTransforms();
+
+    //these indices are the range in the xyz dimensions that the 
+    //  voxel grid can contain the object. This is because we use 
+    //  padding around the bounding box of the object.
+    size_t start_index, end_index[3];
     Timer timer;
 
     //various collision routines.
@@ -103,11 +126,6 @@ private:
     virtual bool isCollided( OpenRAVE::KinBodyPtr cube,
                                             int x, int y, int z );
 
-    //gets the transform from the origin to the center of the cell at
-    //  the specified indices.
-    void getCenterFromIndex( size_t x, size_t y, size_t z,
-                           OpenRAVE::Transform & t ) const;    
-
     //sets up the DtGrid data structure to begin creating a 
     //  distance field
     void setupGrid(size_t x, size_t y, size_t z );
@@ -116,7 +134,8 @@ private:
     OpenRAVE::KinBodyPtr createCube(
                                 OpenRAVE::EnvironmentBasePtr & env,
                                 OpenRAVE::Transform & pos,
-                                std::string & name);
+                                std::string & name,
+                                bool visible = false);
 
     OpenRAVE::KinBodyPtr createCube( int xdist, int ydist, int zdist );
 
@@ -125,10 +144,14 @@ private:
     void setGrid( int x1, int x2, int y1, int y2,
                   int z1, int z2, int value );
     
-    void fillGridEdges( size_t start, size_t * end );
+    void fillGridEdges();
     
+    void startSimpleFill();
+    void startOctreeFill();
+    void startKdtreeFill();
+
     //flood fill all of the reachable vaoxels in the grid.
-    void simpleFloodFill( int x1, int x2, int y1, int y2, int z1, int z2 );
+    void floodFill( int x1, int x2, int y1, int y2, int z1, int z2 );
 
     //fills the grid by simple iterating over every point and checking
     //  for collision.
