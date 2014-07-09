@@ -1,15 +1,12 @@
 cmake_minimum_required(VERSION 2.6)
 project( orchomp )
 
-set( CMAKE_BUILD_TYPE Debug)
+set( verbose FALSE )
+if ( verbose )
+    set( CMAKE_VERBOSE_MAKEFILE on )
+endif( verbose )
 
-#$ cmake -DCMAKE_BUILD_TYPE="Debug" .
-set(CMAKE_C_FLAGS_DEBUG "-O -g")
-set(CMAKE_CXX_FLAGS_DEBUG "-O -g")
-
-#$ cmake -DCMAKE_BUILD_TYPE="Release" 
-set(CMAKE_C_FLAGS_RELEASE "-O3")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3")
+set( CMAKE_BUILD_TYPE Release)
 
 include(src/chomp-multigrid/mzsettings.cmake)
 
@@ -19,17 +16,7 @@ link_directories(${OpenRAVE_LIBRARY_DIRS})
 
 add_subdirectory( src/chomp-multigrid )
 
-#This is all of the ros stuff.
-set( ROS TRUE )
-if (ROS )
-    include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
-    rosbuild_init()
-    set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
-    set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
-endif( ROS )
-
-# end of the ros stuff
-
+#the libraries necessary for orchomp.
 set( ORCHOMPLIBS   
     src/orchomp.cpp
 
@@ -47,11 +34,18 @@ set( ORCHOMPLIBS
     src/utils/timer.h
     )
 
-#uncomment the below line to build normally.
-if( ROS )
+#This is all of the ros stuff.
+set( ROS TRUE )
+if (ROS )
+    include($ENV{ROS_ROOT}/core/rosbuild/rosbuild.cmake)
+    rosbuild_init()
+    set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
+    set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
     rosbuild_add_library( orchomp ${ORCHOMPLIBS} )
+
 else( ROS )
     add_library(orchomp SHARED ${ORCHOMPLIBS})
+
 endif( ROS )
 
 set_target_properties(orchomp PROPERTIES COMPILE_FLAGS

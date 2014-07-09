@@ -53,7 +53,7 @@ void GetPluginAttributesValidated(OpenRAVE::PLUGININFO& info)
    /* create the kdata xml parser interface if it does noet yet exit */
    if(!reg_reader)
       reg_reader = OpenRAVE::RaveRegisterXMLReader(
-                        OpenRAVE::PT_KinBody,"orcdchomp",rdata_parser_maker);
+                        OpenRAVE::PT_KinBody,"orchomp",rdata_parser_maker);
    
    info.interfacenames[OpenRAVE::PT_Module].push_back("orchomp");
    

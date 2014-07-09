@@ -140,8 +140,8 @@ public:
     //____________________PUBLIC MEMBER VARIABLES____________________//
     OpenRAVE::EnvironmentBasePtr environment; /* filled on module creation */
  
-    //the trajectory, start, and endpoint.
-    chomp::MatX trajectory, q0, q1;
+    //the  start, and endpoints.
+    chomp::MatX  q0, q1;
     ORConstraintFactory * factory;
    
     //This holds basic info relating to an individual 
@@ -251,9 +251,11 @@ public:
     //constructor that registers all of the commands to the openRave
     //   command line interface.
     mod(OpenRAVE::EnvironmentBasePtr penv);
-
+    
+    void delete_items();
     //Destructor
-    virtual ~mod() {}
+    virtual ~mod() { delete_items(); }
+
     void Destroy() { RAVELOG_INFO("module unloaded from environment\n"); }
 
     /* This is called on e.LoadProblem(m, 'command') */
@@ -293,7 +295,7 @@ public:
 public:
     // A small helper function for creating a straight
     //  line trajectory between two endpoints:
-    void createInitialTrajectory();
+    void createInitialTrajectory( chomp::MatX& trajectory);
     //get the ith state in the trajectory matrix and turn it into an openrave
     //  state vector.
     void getIthStateAsVector( size_t i,

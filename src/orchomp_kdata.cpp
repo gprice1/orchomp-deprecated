@@ -30,7 +30,7 @@
 namespace orchomp
 {
 
-kdata::kdata() : OpenRAVE::XMLReadable("orcdchomp"){}
+kdata::kdata() : OpenRAVE::XMLReadable("orchomp"){}
 
 kdata::~kdata(){}
 
@@ -105,7 +105,7 @@ void kdata_parser::characters(const std::string& ch)
 
 bool kdata_parser::endElement(const std::string& name)
 {
-   if (name == "orcdchomp"){ return true; }
+   if (name == "orchomp"){ return true; }
    if (name == "spheres")
    {
       if (!this->inside_spheres){

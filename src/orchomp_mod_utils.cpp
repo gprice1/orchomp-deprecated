@@ -33,19 +33,19 @@ bool mod::isWithinLimits( const chomp::MatX & mat ) const{
 
 void mod::coutTrajectory() const
 {
-    for ( int i = 0; i < trajectory.rows(); i ++ ){
+    for ( int i = 0; i < chomper->xi.rows(); i ++ ){
 
 
-        for ( int j = 0; j < trajectory.cols() ; j ++ ){
+        for ( int j = 0; j < chomper->xi.cols() ; j ++ ){
 
-            std::cout << trajectory( i, j ) << "\t";
+            std::cout << chomper->xi( i, j ) << "\t";
         }
         std::cout << "\n";
     }
 }
 void mod::isTrajectoryWithinLimits() const {
-    for( int i = 0; i < trajectory.rows(); i ++ ){
-        chomp::MatX test = trajectory.row(i);
+    for( int i = 0; i < chomper->xi.rows(); i ++ ){
+        chomp::MatX test = chomper->xi.row(i);
         assert( isWithinLimits( test ) );
         //debugStream << "Point " << i << " is within limits" << std::endl;
     }
@@ -101,11 +101,11 @@ void mod::getIthStateAsVector( size_t i,
                       std::vector< OpenRAVE::dReal > & state )
 {
     
-    const int width = trajectory.cols();
+    const int width = chomper->xi.cols();
     state.resize( width );
 
     for ( int j = 0; j < width; j ++ ){
-        state[j] = trajectory(i, j );
+        state[j] = chomper->xi(i, j );
     }
 
 }

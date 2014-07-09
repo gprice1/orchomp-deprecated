@@ -98,13 +98,18 @@ bool mod::playback(std::ostream& sout, std::istream& sinput)
     if (time > 10 || time < 0.00001 ){
         time = 0.07;
     }
+    
+    if ( !chomper ){
+        RAVELOG_ERROR( "Iterate must be called before a playback" );
+        return false;
+    }
 
-    for ( int i = 0; i < trajectory.rows(); i ++ ){
+    for ( int i = 0; i < chomper->xi.rows(); i ++ ){
 
         std::vector< OpenRAVE::dReal > vec;
-        getStateAsVector( trajectory.row(i), vec );
+        getStateAsVector( chomper->xi.row(i), vec );
         
-        viewspheresVec( trajectory.row(i), vec, time );
+        viewspheresVec( chomper->xi.row(i), vec, time );
 
     }
 
@@ -538,19 +543,19 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
     //get the lock for the environment
     OpenRAVE::EnvironmentMutex::scoped_lock lockenv(
               environment->GetMutex() );
-
-    std::cout << "Creating" << std::endl;
+    
+    RAVELOG_INFO( "Creating" );
 
     parseCreate( sout,  sinput);
     
 
-    
     //create a padded upper and lower joint limits vectors. These will be
     //  Used for constraining the trajectory to the joint limits.
     //  Since sometimes, chomp allows constraints to be minutely off,
     //  this will prevent that from happening.
     paddedUpperJointLimits.resize( upperJointLimits.size() );
     paddedLowerJointLimits.resize( lowerJointLimits.size() );
+
     for ( size_t i = 0; i < upperJointLimits.size(); i ++ ){
         OpenRAVE::dReal interval = upperJointLimits[i] - lowerJointLimits[i];
         interval *= info.jointPadding;
@@ -565,11 +570,10 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
 
     assert( isWithinLimits( q0 ) );
     assert( isWithinLimits( q1 ) );
-
-
+    
     //create the sphere collider to actually 
     //  use the sphere information, and pass in its parameters.
-    if ( !info.noCollider ){
+    if ( !info.noCollider && !sphere_collider ){
         
         //Setup the collision geometry
         getSpheres();
@@ -584,10 +588,12 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
     }
 
     if ( !info.noFactory ){
+        if (factory ){ delete factory; }
+
         factory = new ORConstraintFactory( this );
     }
 
-    std::cout << "Done Creating" << std::endl;
+    RAVELOG_INFO( "Done Creating" );
     
     return true;
 }
@@ -626,13 +632,15 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     //get the arguments
     parseIterate( sout,  sinput);
 
-
+    chomp::MatX initialTrajectory;
     //after the arguments have been collected, pass them to chomp
-    createInitialTrajectory();
+    createInitialTrajectory( initialTrajectory );
 
 
     //now that we have a trajectory, make a chomp object
-    chomper = new chomp::Chomp( factory, trajectory,
+    // if there is an old chomp object, delete it.
+    if (chomper){ delete chomper; } 
+    chomper = new chomp::Chomp( factory, initialTrajectory,
                                 q0, q1, info.n_max, 
                                 info.alpha, info.obstol,
                                 info.max_global_iter,
@@ -650,6 +658,9 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     //give chomp a collision helper to 
     //deal with collision and gradients.
     if (sphere_collider){
+        //if a collision helper already exists, delete it, and make a new
+        //  one.
+        if ( collisionHelper ){ delete collisionHelper; }
         collisionHelper = new chomp::ChompCollGradHelper(
                                 sphere_collider, info.gamma);
         chomper->ghelper = collisionHelper;
@@ -660,6 +671,7 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
 
         chomper->observer = &observer;
     }
+
     //setup the mins
     chomper->min_global_iter = info.min_global_iter;
     chomper->min_local_iter = info.min_local_iter;
@@ -680,8 +692,6 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     
     RAVELOG_INFO( "Chomp run took %fs\n", elapsedTime );
 
-    trajectory = chomper->xi;
-
     RAVELOG_INFO( "Done Iterating" ); 
     return true;
 }
@@ -699,11 +709,11 @@ void mod::checkTrajectoryForCollision(){
     double total_dist = 0.0;
 
     //get the length of the trajectory
-    for ( int i = 0; i < trajectory.rows()-1; i ++ ) 
+    for ( int i = 0; i < chomper->xi.rows()-1; i ++ ) 
     {
         
-        const chomp::MatX & point1 = trajectory.row( i );
-        const chomp::MatX & point2 = trajectory.row( i+1 );
+        const chomp::MatX & point1 = chomper->xi.row( i );
+        const chomp::MatX & point2 = chomper->xi.row( i+1 );
         
         const chomp::MatX diff = point1 - point2;
 
@@ -753,6 +763,11 @@ bool mod::gettraj(std::ostream& sout, std::istream& sinput)
 
     parseGetTraj( sout,  sinput);
     
+    if ( !chomper ){
+        RAVELOG_ERROR( "There is no trajectory to get. There must be a"
+                       " call to iterate\n" );
+    }
+                       
     //get the lock for the environment
     lockenv = OpenRAVE::EnvironmentMutex::scoped_lock(
               environment->GetMutex() );
@@ -771,13 +786,13 @@ bool mod::gettraj(std::ostream& sout, std::istream& sinput)
 
     //get the start state as an openrave vector
     std::vector< OpenRAVE::dReal > startState;
-    getStateAsVector( q0, startState );
+    getStateAsVector( chomper->q0, startState );
 
     //insert the start state into the trajectory
     trajectory_ptr->Insert( 0, startState );
 
     //get the rest of the trajectory
-    for ( int i = 0; i < trajectory.rows(); i ++ ){
+    for ( int i = 0; i < chomper->xi.rows(); i ++ ){
         
         std::vector< OpenRAVE::dReal > state;
         getIthStateAsVector( i, state );
@@ -787,10 +802,10 @@ bool mod::gettraj(std::ostream& sout, std::istream& sinput)
     
     //get the start state as an openrave vector
     std::vector< OpenRAVE::dReal > endState;
-    getStateAsVector( q1, endState );
+    getStateAsVector( chomper->q1, endState );
 
     //insert the end state into the trajectory
-    trajectory_ptr->Insert( trajectory.rows(), endState );
+    trajectory_ptr->Insert( chomper->xi.rows(), endState );
 
 
     RAVELOG_INFO( "Retiming Trajectory\n" );
@@ -807,6 +822,7 @@ bool mod::gettraj(std::ostream& sout, std::istream& sinput)
 
     return true;
 }
+
 bool mod::execute(std::ostream& sout, std::istream& sinput){
 
     std::cout << "Executing" << std::endl;
@@ -828,12 +844,29 @@ bool mod::execute(std::ostream& sout, std::istream& sinput){
         
 }
 
+void mod::delete_items(){
+    if (chomper){
+        delete chomper;
+        chomper = NULL;
+    }
+    if (sphere_collider){ 
+        delete sphere_collider;
+        sphere_collider = NULL;
+    }
+    if (factory){
+        delete factory;
+        factory = NULL;
+    }
+    if (collisionHelper){ 
+        delete collisionHelper;
+        collisionHelper = NULL;
+    }
+}
+
 bool mod::destroy(std::ostream& sout, std::istream& sinput){
     
-    if (chomper){         delete chomper; }
-    if (sphere_collider){ delete sphere_collider; }
-    if (factory){         delete factory;}
-    if (collisionHelper){ delete collisionHelper; }
+    RAVELOG_INFO( "Deleting orchomp module\n" );
+    delete_items();
 
     return true;
 }
@@ -842,7 +875,7 @@ bool mod::destroy(std::ostream& sout, std::istream& sinput){
 
 //takes the two endpoints and fills the trajectory matrix by
 //  linearly interpolating between the two.
-inline void mod::createInitialTrajectory()
+inline void mod::createInitialTrajectory( chomp::MatX & trajectory )
 {
 
     //make sure that the number of points is not zero
@@ -888,13 +921,13 @@ void mod::getSpheres()
         //  extract the spheres from the xml files of the objects
         boost::shared_ptr<orchomp::kdata> data_reader = 
             boost::dynamic_pointer_cast<orchomp::kdata>
-                (body->GetReadableInterface("orcdchomp"));
+                (body->GetReadableInterface("orchomp"));
          
         //bail if there is no orcdchomp data.
         if (data_reader.get() == NULL ) {
             std::string error = "Kinbody called "
                               + body->GetName() 
-                              + " does not have a <orcdchomp> tag defined.";
+                              + " does not have a <orchomp> tag defined.";
             
             throw OpenRAVE::openrave_exception(error);
         }

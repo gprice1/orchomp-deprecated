@@ -38,8 +38,8 @@ endif()
 set(CMAKE_C_FLAGS_DEBUG "-O")
 set(CMAKE_CXX_FLAGS_DEBUG "-O")
 
-set(CMAKE_C_FLAGS_RELEASE "-O2")
-set(CMAKE_CXX_FLAGS_RELEASE "-O2")
+set(CMAKE_C_FLAGS_RELEASE "-O3")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -fopenmp")
 
 macro(add_gui_app name)
   if(APPLE)

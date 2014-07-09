@@ -119,30 +119,23 @@ ORTSRConstraint * mod::parseTSR( std::istream & sinput ){
     
 void mod::parseRobot( std::string & robot_name ){
     if (robot.get()) { 
-        throw OpenRAVE::openrave_exception(
+        if (robot->GetName() != robot_name ) {
+            throw OpenRAVE::openrave_exception(
                 "Only one robot can be passed!");
-    }
-    robot = environment->GetRobot( robot_name.c_str() );
+        }
+    }else {
+        robot = environment->GetRobot( robot_name.c_str() );
 
-    if ( !robot.get() ){              
-        throw OpenRAVE::openrave_exception(
-                "Failed to get robot");
+        if ( !robot.get() ){              
+            throw OpenRAVE::openrave_exception(
+                    "Failed to get robot");
+        }
     }
 
     active_indices = robot->GetActiveDOFIndices();
     robot->GetActiveDOFLimits( lowerJointLimits, upperJointLimits);
     n_dof = active_indices.size();
  
-    std::stringstream ss;
-    std::string active = "Active Indices: " ;
-
-    for ( size_t i = 0; i < active_indices.size(); i ++ ){
-        ss << active_indices[i] << " ";
-    }
-
-    active += ss.str() + "\n";
-    RAVELOG_INFO( active );
-
     if (!robot.get()) {
         throw OpenRAVE::openrave_exception(
                 "Robot name not valid");
@@ -182,7 +175,6 @@ void parseError( std::istream& sinput ){
 
 void mod::parseCreate(std::ostream & sout, std::istream& sinput)
 {
-    
 
     std::string cmd;
     /* parse command line arguments */
@@ -302,10 +294,9 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
             info.do_not_reject = false;
         }
         //error case
-        else{ parseError( sinput );}
+        else{ parseError( sinput ); }
     }
     
-    std::cout << "Done create" << std::endl ;
     if (size_t( q0.cols() )!= active_indices.size() ){
         std::vector< OpenRAVE::dReal > values;
         robot->GetDOFValues( values, active_indices );
@@ -383,6 +374,7 @@ void mod::parseIterate(std::ostream & sout, std::istream& sinput)
     }
 
 }
+
 void mod::parseGetTraj(std::ostream & sout, std::istream& sinput)
 {
 

@@ -246,8 +246,10 @@ ORConstraintFactory::ORConstraintFactory( mod * module ) : module( module ){
 
 }
 ORConstraintFactory::~ORConstraintFactory(){
-    for ( size_t i = 0; i < constraints.size() ; i ++ ){
-        delete constraints[i];
+    
+    while ( !constraints.empty() ){
+        delete constraints.back();
+        constraints.pop_back();
     }
 }
 
