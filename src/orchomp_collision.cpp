@@ -305,18 +305,22 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
                                               chomp::MatX& cgrad)
 {
     
+    timer.start("collision");
+    
     //debugStream << "Getting Gradient Costs" << std::endl;
 
     //resize the matrices:
-    //TODO make sure that dx_dq dimensions are correct
-    dx_dq.conservativeResize( nwkspace, ncspace );
-    cgrad.conservativeResize( nwkspace, 1 );
+    dx_dq.resize( nwkspace, ncspace );
+    cgrad.resize( nwkspace, 1 );
     
+
     if( body_index == 0 )
     {
+        timer.start( "FK" );
         std::vector< OpenRAVE::dReal > vec;
         module->getStateAsVector( q, vec );
-
+        
+        /*
         //debugStream << q << std::endl;
         //assert( module->isWithinLimits( q ));
         
@@ -328,9 +332,12 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
                 break;
             }
         }
-        module->robot->SetActiveDOFValues(vec, 0);
+        */
+        module->robot->SetActiveDOFValues(vec, false);
+        timer.stop( "FK" );
     }
-
+    
+    timer.start( "xform" );
     //loop through all of the active spheres,
     //and check their collision status.
     
@@ -349,11 +356,16 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
     vec3 gradient_sdf(0,0,0), gradient_self(0,0,0);
     OpenRAVE::dReal cost_sdf(0), cost_self(0);
     
+    timer.stop( "xform" );
+
+    timer.start("sdf collision");
     if (!module->info.noEnvironmentalCollision){
         cost_sdf = getSDFCollisions( current_sphere, current_pos,
                                      gradient_sdf, false);
     }
+    timer.stop("sdf collision");
 
+    timer.start("self collision");
     //fill the jacobian with zeros.
     std::vector<OpenRAVE::dReal> otherJacobian( nwkspace * ncspace, 0.0);
     if (!module->info.noSelfCollision){
@@ -361,7 +373,9 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
                                    current_pos, gradient_self,
                                    otherJacobian);
     }
-
+    timer.stop("self collision");
+    
+    timer.start( "jacobian" );
     //create the structure for the jacobian computation
     std::vector< OpenRAVE::dReal > jacobian;
 
@@ -403,10 +417,14 @@ double SphereCollisionHelper::getCost(const chomp::MatX& q,
         }
     }
     
+    timer.stop( "jacobian" );
+
     //debugStream << "Done Gradient Cost: " <<  cost_sdf + cost_self << std::endl;
+    timer.stop("collision");
     
     //setup the gradient and cost for return
     return obs_factor*cost_sdf + obs_factor_self*cost_self;
+
 }
 
 

@@ -24,7 +24,12 @@
  */
 
 #include "orchomp_mod.h"
+#include "orchomp_constraint.h"
 #include "orchomp_kdata.h"
+#include "orchomp_collision.h"
+#include "orchomp_observer.h"
+
+#include "chomp-multigrid/chomp/HMC.h"
 
 namespace orchomp
 {
@@ -33,10 +38,12 @@ namespace orchomp
 //constructor that registers all of the commands to the openRave
 //   command line interface.
 mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
-    OpenRAVE::ModuleBase(penv), environment( penv ), 
+    OpenRAVE::ModuleBase(penv), environment( penv ),
+    chomper( NULL ),
     factory( NULL ), sphere_collider( NULL ),
-    collisionHelper( NULL ), chomper( NULL )
+    collisionHelper( NULL ), observer( NULL ), hmc( NULL )
 {
+    RAVELOG_INFO( "Constructing\n");
       __description = "orchomp: implementation multigrid chomp";
       RegisterCommand("viewspheres",
               boost::bind(&mod::viewspheres,this,_1,_2),
@@ -115,6 +122,97 @@ bool mod::playback(std::ostream& sout, std::istream& sinput)
 
     return true;
 }
+
+void getColor( OpenRAVE::Vector & color, double cost, double eps ){
+    if ( cost <= 0.5*eps ){
+        float val = cost/(0.5*eps);
+        color = OpenRAVE::Vector( 1,val,0 );
+    }
+    else if ( cost <= eps){
+        float val = cost/(0.5*eps) - 1.0;
+        color = OpenRAVE::Vector( 1,1,val);
+    }else {
+        color = OpenRAVE::Vector( 1,1,1 );
+    }
+}
+
+//view the collision geometry. .
+bool mod::viewspheresVec(const chomp::MatX & q,
+                        const std::vector< OpenRAVE::dReal > & vec, 
+                        double time)
+{
+    
+    robot->SetActiveDOFValues( vec, true );
+
+    if ( !sphere_collider ) { 
+        std::cout << "There is no sphere collider, so viewing the" 
+                  << " spheres is impossible" << std::endl;
+        return true;
+    }
+    
+    char text_buf[1024];
+    
+    const size_t n_active = active_spheres.size();
+
+    std::vector< OpenRAVE::KinBodyPtr > bodies;
+    
+
+    for ( size_t i=0; i < n_active; i ++ )
+    {
+
+        double cost( 0 );
+        chomp::MatX dxdq, cgrad;
+
+        if( sphere_collider ){ 
+            cost = sphere_collider->getCost( q, i, dxdq, cgrad );
+            if ( cost <= 0 ){ continue; }
+        }
+        
+        //extract the current sphere
+        //  if i is less than n_active, get a sphere from active_spheres,
+        //  else, get a sphere from inactive_spheres
+        const Sphere & current_sphere = active_spheres[i] ;
+
+        //make a kinbody sphere object to correspond to this sphere.
+        OpenRAVE::KinBodyPtr sbody = 
+                OpenRAVE::RaveCreateKinBody( environment );
+        sprintf( text_buf, "orcdchomp_sphere_%d", int(i));
+        sbody->SetName(text_buf);
+        
+        //set the dimensions and transform of the sphere.
+        std::vector< OpenRAVE::Vector > svec;
+
+        //get the position of the sphere in the world 
+        OpenRAVE::Transform t =  current_sphere.body->GetLink(
+                                 current_sphere.linkname)->GetTransform();
+        OpenRAVE::Vector position = t * current_sphere.position;
+        
+        //set the radius of the sphere
+        position.w = current_sphere.radius *
+                     ( 1 + std::min(cost/(sphere_collider->epsilon ), 1.0)); 
+
+        //give the kinbody the sphere parameters.
+        svec.push_back( position );
+        sbody->InitFromSpheres(svec, true);
+        
+        bodies.push_back( sbody );
+        environment->Add( sbody );
+
+        OpenRAVE::Vector color;  
+        getColor( color, cost, sphere_collider->epsilon );
+        sbody->GetLinks()[0]->GetGeometries()[0]->SetAmbientColor( color );
+        sbody->GetLinks()[0]->GetGeometries()[0]->SetDiffuseColor( color );
+    }
+    
+    timer.wait( time );
+
+    for ( size_t i = 0; i < bodies.size() ; i ++ ){
+        environment->Remove( bodies[i] );
+    }
+    
+    return true;
+}
+
 //view the collision geometry.
 bool mod::viewspheres(std::ostream& sout, std::istream& sinput)
 {
@@ -358,103 +456,6 @@ bool mod::viewtsr(std::ostream & sout, std::istream& sinput){
 }
 
 
-//view the collision geometry. .
-bool mod::viewspheresVec(const chomp::MatX & q,
-                        const std::vector< OpenRAVE::dReal > & vec, 
-                        double time)
-{
-
-    struct timespec ticks_tic;
-    struct timespec ticks_toc;
-
-    /* start timing voxel grid computation */
-    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
-
-
-    robot->SetActiveDOFValues( vec, true );
-
-    if ( !sphere_collider ) { 
-        std::cout << "There is no sphere collider, so viewing the" 
-                  << " spheres is impossible" << std::endl;
-        return true;
-    }
-    
-    char text_buf[1024];
-    
-    const size_t n_active = active_spheres.size();
-
-    std::vector< OpenRAVE::KinBodyPtr > bodies;
-
-    for ( size_t i=0; i < n_active; i ++ )
-    {
-
-        double cost( 0 );
-        chomp::MatX dxdq, cgrad;
-
-        if( sphere_collider ){ 
-            cost = sphere_collider->getCost( q, i, dxdq, cgrad );
-            if ( cost <= 0 ){ continue; }
-        }
-        
-        //extract the current sphere
-        //  if i is less than n_active, get a sphere from active_spheres,
-        //  else, get a sphere from inactive_spheres
-        const Sphere & current_sphere = active_spheres[i] ;
-
-        //make a kinbody sphere object to correspond to this sphere.
-        OpenRAVE::KinBodyPtr sbody = 
-                OpenRAVE::RaveCreateKinBody( environment );
-        sprintf( text_buf, "orcdchomp_sphere_%d", int(i));
-        sbody->SetName(text_buf);
-        
-        //set the dimensions and transform of the sphere.
-        std::vector< OpenRAVE::Vector > svec;
-
-        //get the position of the sphere in the world 
-        OpenRAVE::Transform t =  current_sphere.body->GetLink(
-                                 current_sphere.linkname)->GetTransform();
-        OpenRAVE::Vector position = t * current_sphere.position;
-        
-        //set the radius of the sphere
-        position.w = current_sphere.radius *
-                     ( 1 + std::min(cost/(sphere_collider->epsilon ), 1.0)); 
-
-        //give the kinbody the sphere parameters.
-        svec.push_back( position );
-        sbody->InitFromSpheres(svec, true);
-        
-        bodies.push_back( sbody );
-        environment->Add( sbody );
-
-        
-        OpenRAVE::Vector color;  
-        if ( cost <= 0.5*sphere_collider->epsilon ){
-            float val = cost/(0.5*sphere_collider->epsilon);
-            color = OpenRAVE::Vector( 1,val,0 );
-        }
-        else if ( cost <= sphere_collider->epsilon ){
-            float val = cost/(0.5*sphere_collider->epsilon) - 1.0;
-            color = OpenRAVE::Vector( 1,1,val);
-        }else {
-            color = OpenRAVE::Vector( 1,1,1 );
-        }
-        sbody->GetLinks()[0]->GetGeometries()[0]->SetAmbientColor( color );
-        sbody->GetLinks()[0]->GetGeometries()[0]->SetDiffuseColor( color );
-    }
-    
-    while ( true ){
-      /* stop timing voxel grid computation */
-      clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
-      CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
-      if ( time < CD_OS_TIMESPEC_DOUBLE(&ticks_toc) ){ break ; }
-    }
-
-    for ( size_t i = 0; i < bodies.size() ; i ++ ){
-        environment->Remove( bodies[i] );
-    }
-    
-    return true;
-}
 
 
 
@@ -589,7 +590,6 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
 
     if ( !info.noFactory ){
         if (factory ){ delete factory; }
-
         factory = new ORConstraintFactory( this );
     }
 
@@ -600,6 +600,9 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
 
 
 void mod::printChompInfo(){
+
+
+    RAVELOG_INFO( "Chomp.n = %d\n", info.n );
     RAVELOG_INFO( "Chomp.n_max = %d\n", info.n_max );
     RAVELOG_INFO( "Chomp.alpha = %f\n", info.alpha );
     RAVELOG_INFO( "Chomp.obstol = %f\n", info.obstol );
@@ -646,13 +649,19 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
                                 info.max_global_iter,
                                 info.max_local_iter,
                                 info.t_total, info.timeout_seconds,
-                                info.use_momentum, info.hmc_lambda,
-                                info.do_not_reject);
+                                info.use_momentum);
     
-    if ( info.seed != 0 ){
-        chomper->setHMCSeed( info.seed );
-    }
+    if ( info.use_hmc ){
+        if (hmc){ delete hmc; }
+        hmc = new chomp::HMC( info.hmc_lambda, info.do_not_reject );
+        
+        if ( info.seed != 0 ){
+            hmc->setSeed( info.seed );
+        }
 
+        chomper->hmc = hmc;
+    }
+    
     printChompInfo();
 
     //give chomp a collision helper to 
@@ -668,8 +677,8 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
 
     
     if ( info.doObserve ){
-
-        chomper->observer = &observer;
+        observer = new chomp::DebugChompObserver();
+        chomper->observer = observer;
     }
 
     //setup the mins
@@ -689,9 +698,33 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     chomper->solve( info.doGlobal, info.doLocal );
     
     double elapsedTime = timer.stop( "CHOMP run" );
-    
-    RAVELOG_INFO( "Chomp run took %fs\n", elapsedTime );
+    double wallTime = timer.getWallElapsed("CHOMP run");
 
+    RAVELOG_INFO( "Chomp process time %fs\n", elapsedTime );
+    RAVELOG_INFO( "Chomp wall time    %fs\n", wallTime );
+    
+    RAVELOG_INFO( "Collision process time:      %fs\n",
+                   sphere_collider->timer.getTotal( "collision"));
+    RAVELOG_INFO( "Collision FK process time:   %fs\n",
+                   sphere_collider->timer.getTotal( "FK"));
+    RAVELOG_INFO( "Collision Jacobian process time: %fs\n",
+                   sphere_collider->timer.getTotal( "jacobian"));
+    RAVELOG_INFO( "xform Collision process time:  %fs\n",
+                   sphere_collider->timer.getTotal( "xform"));
+
+    RAVELOG_INFO( "Collision wall time:      %fs\n",
+                   sphere_collider->timer.getWallTotal( "collision"));
+    RAVELOG_INFO( "Collision FK wall time:   %fs\n",
+                   sphere_collider->timer.getWallTotal( "FK"));
+    RAVELOG_INFO( "Collision Jacobian wall time: %fs\n",
+                   sphere_collider->timer.getWallTotal( "jacobian"));
+    RAVELOG_INFO( "SDF Collision wall time:  %fs\n",
+                   sphere_collider->timer.getWallTotal( "sdf collision"));
+    RAVELOG_INFO( "Self Collision wall time: %fs\n",
+                   sphere_collider->timer.getWallTotal( "self collision"));
+    RAVELOG_INFO( "Xform Collision wall time: %fs\n",
+                   sphere_collider->timer.getWallTotal( "xform"));
+   
     RAVELOG_INFO( "Done Iterating" ); 
     return true;
 }
@@ -861,6 +894,14 @@ void mod::delete_items(){
         delete collisionHelper;
         collisionHelper = NULL;
     }
+    if (observer){
+        delete observer;
+        observer = NULL;
+    }
+    if (hmc){
+        delete hmc;
+        hmc = NULL;
+    }
 }
 
 bool mod::destroy(std::ostream& sout, std::istream& sinput){
@@ -904,7 +945,9 @@ inline void mod::createInitialTrajectory( chomp::MatX & trajectory )
 void mod::getSpheres()
 {
     
-    
+    active_spheres.clear();
+    inactive_spheres.clear();
+
     //a vector holding all of the pertinent bodies in the scene
     std::vector<OpenRAVE::KinBodyPtr> bodies;
 

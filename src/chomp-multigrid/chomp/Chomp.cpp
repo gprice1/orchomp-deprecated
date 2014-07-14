@@ -34,11 +34,10 @@
 #include "Chomp.h"
 #include "ConstraintFactory.h"
 #include "Constraint.h"
+#include "HMC.h"
 #include <float.h>
 #include <cmath>
 #include <iomanip>
-#include "mzcommon/mersenne.h"
-#include "mzcommon/gauss.h"
 
 #define debug if (0) std::cout
 #define debug_assert if (0) assert
@@ -187,9 +186,7 @@ namespace chomp {
                size_t ml,
                double tt,
                double timeout_seconds,
-               bool use_momentum,
-               double hmc_lambda,
-               bool doNotReject):
+               bool use_momentum):
     factory(f),
     observer(0),
     ghelper(0),
@@ -210,7 +207,7 @@ namespace chomp {
     didTimeout( false ),
     using_mutex( false ),
     use_momentum( use_momentum ),
-    hmc_lambda( hmc_lambda )
+    hmc( NULL )
   {
 
     N = xi.rows();
@@ -224,11 +221,6 @@ namespace chomp {
     minN = N;
     assert(maxN >= minN);
 
-    if (hmc_lambda > 0 ){
-        use_momentum = true;
-        use_hmc = true;
-    }
-
   }
  
   void Chomp::initMutex(){
@@ -236,140 +228,6 @@ namespace chomp {
       pthread_mutex_init( &trajectory_mutex, NULL );
   }
 
-
-  void Chomp::setHMCSeed( unsigned long seed ){
-    mt_init_genrand( seed );
-  }
-  
-  void Chomp::resampleMomentum(){
-    
-    std::cout << "Resampling momentum" << std::endl;
-
-    if( doNotReject || !checkForRejection() ){
-      
-      getRandomMomentum();
-
-      hmc_resample_iter = cur_global_iter + 1 
-                          - log( mt_genrand_real1()) / hmc_lambda;
-      std::cout << "Resampled momentum, next iteration: " 
-                << hmc_resample_iter <<std::endl;
-    }
-  }
-  
-  void Chomp::getRandomMomentum(){
-    const double hmc_alpha = 2/hmc_lambda *
-                             exp( hmc_lambda * cur_global_iter );
-
-    //this is the standard deviation of the gaussian distribution.
-    const double sigma = 1.0/sqrt(hmc_alpha); 
-
-    //get random univariate gaussians to start.
-    for ( int i = 0; i < momentum_delta.size(); i ++ ){
-      //since we are using the leapfrog method, we divide by 2
-      momentum_delta(i) = gauss_ziggurat( sigma );
-    }
-    
-    //create the smoothing operator. This solves the equation,
-    //  x = R*u; (where u is a random vector of random numbers sampled
-    //  from a univariate gaussian, R is the multivariate-gaussian 
-    //  kernel, and x is a single sample from the multivariate gaussian.
-    //  Since the A matrix is the covariance matrix, and A = K.transpose*K,
-    //  The R matrix is equal to K.transpose().
-    int n(0);
-    double smoothing_operator[3];
-
-    //apply the smoothness operator K to each of the columns.
-    if (objective_type == MINIMIZE_VELOCITY){
-      n = 2;
-      smoothing_operator[0] = -1;
-      smoothing_operator[1] = 1;
-    }else if (objective_type == MINIMIZE_ACCELERATION){
-      n = 3;
-      smoothing_operator[0] = 1; 
-      smoothing_operator[1] = -2; 
-      smoothing_operator[2] = 1; 
-    }
-
-    //for each degree of freedom, smooth out the values along that
-    //  DOF by applying the K.transpose matrix.
-    for (int j = 0; j < momentum_delta.cols(); j ++ ){
-      for( int i = 0; i < momentum_delta.rows() - n + 1; i ++ ){
-        double total = 0.0;
-
-        for( int k = 0; k < n; k ++ ){
-          total += momentum_delta( i + k, j ) * smoothing_operator[k];
-        }
-        momentum_delta(i,j) = total;
-      }
-      
-      //the last couple elements are special, because they hang over
-      //    the edge of the matrix.
-      for (int i = momentum_delta.rows() - n + 1;
-               i < momentum_delta.rows(); 
-               i ++ )
-      {
-        double total = 0.0;
-
-        for( int k = 0; k < n; k ++ ){
-          //bail out if we are over the edge of the matrix.
-          if (i + k >= momentum_delta.rows() ){ break; }
-          total += momentum_delta( i + k, j ) * smoothing_operator[k];
-
-        }
-        momentum_delta(i,j) = total;
-      }
-    }
-  }
-
-
-  bool Chomp::checkForRejection(){
-
-    //test the probability of the current state against that of the
-    //  old state.
-    //start by calculating the current probability
-    //the energy of the momentum vector.
-    double kinetic_energy = momentum_delta.squaredNorm() * 0.5;
-    
-    //the potential energy is the value of the last objective function.
-    //  the total energy is below.
-    double current_energy = exp(-kinetic_energy) * exp(-lastObjective);
-
-    std::cout << "Current Energy: " << current_energy << std::endl; 
-    std::cout << "Previous Energy: " << previous_energy << std::endl;
-    
-    if ( current_energy < previous_energy ){
-        double probability = current_energy / previous_energy;
-
-        //if the probability is too low, 
-        //  revert to the previous trajectory
-        if ( mt_genrand_real1() > probability ){
-            std::cout << "Rejecting" << std::endl;
-
-            assert( xi.cols() == old_xi.cols());
-            assert( xi.rows() == old_xi.rows());
-            assert( momentum_delta.cols() == old_momentum_delta.cols());
-            assert( momentum_delta.rows() == old_momentum_delta.rows());
-
-            xi = old_xi;
-            momentum_delta = old_momentum_delta;
-            return true;
-        }
-    }
-    
- 
-    previous_energy = current_energy;
-    old_xi = xi;
-    old_momentum_delta = momentum_delta;
-    return false;
-
-  }
-  
-  void Chomp::setupHMCRun(){
-
-    previous_energy = 0.0;
-    hmc_resample_iter = - log( mt_genrand_real1()) / hmc_lambda;
-
-  }
 
   void Chomp::clearConstraints() {
 
@@ -381,7 +239,8 @@ namespace chomp {
   }
 
   void Chomp::prepareChomp() {
-
+    
+    
     if (objective_type == MINIMIZE_VELOCITY) {
 
       coeffs.resize(1,2);
@@ -417,10 +276,6 @@ namespace chomp {
 
     g.resize(N,M);
 
-
-
-
-
     // decide whether base case or not
     bool subsample = (N > minN);
     if (full_global_at_final && N >= maxN) {
@@ -429,19 +284,17 @@ namespace chomp {
 
     if (!subsample) {
       N_sub = 0;
+      if ( use_momentum ){
+        momentum.resize( N, M );
+        momentum.setZero();
+      }
+      if( hmc ){ hmc->setupRun(); }
 
-      if (use_momentum) {
-        momentum_delta.resize( N, M );
-        momentum_delta.setZero();
-      }
-      if( use_hmc ){
-        setupHMCRun();
-      }
     } else {
       N_sub = (N+1)/2;
       g_sub.resize(N_sub, M);
       xi_sub.resize(N_sub, M);
-      skylineChol((N+1)/2, coeffs_sub, L_sub); 
+      skylineChol(N_sub , coeffs_sub, L_sub); 
     }
 
     dt = t_total / (N+1);
@@ -457,27 +310,36 @@ namespace chomp {
     cur_local_iter = 0;
 
   }
+  
+  void Chomp::updateGradient() { 
+
+    Ax.resize(xi.rows(), xi.cols());
+
+    diagMul(coeffs, xi, Ax);
+
+    g = Ax + b;
+    if (ghelper) {
+        fextra = ghelper->addToGradient(*this, g);
+    } else {
+        fextra = 0;
+    }
+  }
+
 
   // precondition: prepareChomp was called for this resolution level
   void Chomp::prepareChompIter() {
-
+    
+    if (hmc && !N_sub ) {
+      hmc->iteration( cur_global_iter, xi, momentum, L, lastObjective );
+    }
+    
     // compute gradient, constraint & Jacobian and subsample them if
     // needed
 
     // get the gradient
-    Ax.conservativeResize(xi.rows(), xi.cols());
-
-    diagMul(coeffs, xi, Ax);
-    g = Ax + b;
-
-    if (ghelper) {
-      fextra = ghelper->addToGradient(*this, g);
-    } else {
-      fextra = 0;
-    }
+    updateGradient();
 
     if (N_sub) {
-      
       // we want even rows of xi and g
       // q0 q1 q2 q3 q4 q5 q6  with n = 7
       // q0    q2    q4    q6  
@@ -494,7 +356,6 @@ namespace chomp {
       }
 
     } else {
-
       // should we instead grab relevant blocks from this for local
       // smoothing?
       if (factory) {
@@ -555,6 +416,7 @@ namespace chomp {
       }
       lastObjective = curObjective;
     }
+    cur_global_iter = 0;
 
     if (full_global_at_final && N >= maxN) {
       local = false;
@@ -611,6 +473,11 @@ namespace chomp {
         canTimeout = true;
         stop_time = TimeStamp::now() +
                     Duration::fromDouble( timeout_seconds );
+    }
+    
+    if ( hmc ){ 
+        use_momentum = true;
+        hmc->setupHMC( objective_type, alpha );
     }
 
     total_global_iter = 0;
@@ -733,20 +600,16 @@ namespace chomp {
     assert(Ax.rows() == N && Ax.cols() == M);
     
 
-
     // see if we're in our base case (not subsampling)
     bool subsample = N_sub != 0;
-
-    //resample the momentum if it is time to do so.
-    if ( !subsample && use_hmc && cur_global_iter == hmc_resample_iter ){
-        resampleMomentum();
-    }
+    
 
     const MatX& H_which = subsample ? H_sub : H;
     const MatX& g_which = subsample ? g_sub : g;
     const MatX& L_which = subsample ? L_sub : L;
     const MatX& h_which = subsample ? h_sub : h;
     const int  N_which = subsample ? N_sub : N;
+    
 
     if (H_which.rows() == 0) {
 
@@ -755,33 +618,23 @@ namespace chomp {
       } else {
         assert( g_which.rows() == xi.rows() );
       }
-
       
-      delta = alpha * g_which;
-      skylineCholSolveMulti(L_which, delta);
-      
-      if (use_momentum && !subsample){
-          std::cout << "Momentum_delta is " << momentum_delta.rows()
-                    <<"x" <<momentum_delta.cols()
-                    << "\nDelta is " << delta.rows() << "x"
-                    << delta.cols() << std::endl;
-
-          assert( momentum_delta.rows() == delta.rows() );
-          assert( momentum_delta.cols() == delta.cols() );
-          momentum_delta += delta;
-      }
-      const MatX & delta_which =
-            (use_momentum && !subsample ) ? momentum_delta : delta;
+      skylineCholSolve(L_which, g_which);
       
       lockTrajectory();
       if (subsample) {
         for (int t=0; t<N_sub; ++t) {
-          xi.row(2*t) -= delta_which.row(t);
+          xi.row(2*t) -= g_which.row(t) * alpha;
         }
+      } else if ( use_momentum ) {
+        momentum += g_which * alpha;
+        xi -= momentum;
       } else {
-        xi -= delta_which;
+        xi -= g_which * alpha;
       }
       unlockTrajectory();
+    
+    //chomp update with constraints
     } else {
 
       P = H_which.transpose();
@@ -809,33 +662,25 @@ namespace chomp {
       assert(g_which.rows() == N_which && g_which.cols() == M);
       
 
-      //TODO remove this
-      MatX g_original = g_which;
-
-      if (use_momentum && !subsample)
-      {
-        momentum_delta += g_which * alpha;
-        Eigen::Map<const Eigen::MatrixXd> momentum_delta_flat(
-                                     momentum_delta.data(), newsize, 1);
-
-        W = (MatX::Identity(newsize,newsize) - H_which.transpose() * Y)
-          * momentum_delta_flat;
-      }
-      else 
-      {
-        Eigen::Map<const Eigen::MatrixXd> g_flat(g_which.data(),
+      Eigen::Map<const Eigen::MatrixXd> g_flat(g_which.data(),
                                                  newsize, 1);
-        W = (MatX::Identity(newsize,newsize) - H_which.transpose() * Y)
-            * (g_flat * alpha);
-      }
-      
+      W = (MatX::Identity(newsize,newsize) - H_which.transpose() * Y)
+          * g_flat * alpha;
       skylineCholSolveMulti(L_which, W);
 
       Y = cholSolver.solve(h_which);
 
       debug_assert( h_which.isApprox(HP*Y) );
-
-      delta = W + P * Y;
+      
+      //handle momentum if we need to.
+      if (!subsample && use_momentum){
+        Eigen::Map<Eigen::MatrixXd> momentum_flat(
+                            momentum.data(), newsize, 1);
+        momentum_flat += W;
+        delta = momentum_flat + P * Y;
+      }else {
+        delta = W + P * Y;
+      }
 
       assert(delta.rows() == newsize && delta.cols() == 1);
 
@@ -946,8 +791,22 @@ namespace chomp {
       ||Kx + e||^2 = 
        
     */
+    
+    if ( false ){
+        const double xi_Ax = 0.5 * mydot( xi, Ax );
+        const double xi_b = mydot( xi, b );
+        const double smoothness = ( xi_Ax + xi_b + c ) * fscl;
+        std::cout <<  "xi * Ax    = " << xi_Ax << std::endl;
+        std::cout <<  "xi * b     = " << xi_b << std::endl;
+        std::cout <<  "c          = " << c << std::endl;
+        std::cout <<  "fextra     = " << fextra << std::endl;
+        std::cout <<  "fscale     = " << fscl << std::endl;
+        std::cout <<  "smoothness = " << smoothness << std::endl;
 
-    return ( 0.5*mydot(xi, Ax) + mydot(xi, b) + c ) * fscl + fextra;
+        return smoothness + fextra;
+    }
+
+    return (0.5 * mydot( xi, Ax ) + mydot( xi, b ) + c ) + fextra;
 
   }
 
@@ -1036,7 +895,7 @@ namespace chomp {
 
     bool notGoodEnough = true;
 
-    double lastObjective = evaluateObjective();
+    lastObjective = evaluateObjective();
     //std::cout << "initial objective is " << lastObjective << "\n";
 
     

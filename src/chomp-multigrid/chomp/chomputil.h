@@ -174,6 +174,55 @@ namespace chomp {
   }
 
   //////////////////////////////////////////////////////////////////////
+  //This is used by the HMC class to generate random smooth momenta.
+  template <class Derived1, class Derived2>
+  inline void skylineCholMultiplyInverseTranspose(
+                               const Eigen::MatrixBase<Derived1>& L,
+                               const Eigen::MatrixBase<Derived2>& x_const) {
+
+    const int n = L.rows();
+    assert(x_const.rows() == n);
+
+    Eigen::MatrixBase<Derived2>& x = 
+      const_cast<Eigen::MatrixBase<Derived2>&>(x_const);
+
+    const int nc = L.cols();
+    const int o = nc-1;
+
+    for (int i=n-1; i>=0; --i) {
+      const int j1 = std::min(i+nc, n);
+      for (int j=i+1; j<j1; ++j) {
+        x.row(i) -= L(j, i-j+o) * x.row(j); // here j > i so col < row
+      }
+      x.row(i) /= L(i,o);
+    }
+  }
+
+  template <class Derived1, class Derived2>
+  inline void skylineCholMultiplyInverse(
+                               const Eigen::MatrixBase<Derived1>& L,
+                               const Eigen::MatrixBase<Derived2>& x_const) {
+
+    int n = L.rows();
+    assert(x_const.rows() == n);
+
+    Eigen::MatrixBase<Derived2>& x = 
+      const_cast<Eigen::MatrixBase<Derived2>&>(x_const);
+
+    int nc = L.cols();
+    int o = nc-1;
+
+    for (int i=0; i<n; ++i) {
+      int j0 = std::max(0, i-o);
+      for (int j=j0; j<i; ++j) {
+        x.row(i) -= L(i,j-i+o)*x.row(j); // here j < i so col < row
+      }
+      x.row(i) /= L(i,o);
+    }
+
+  }
+
+  //////////////////////////////////////////////////////////////////////
 
   template <class Derived1, class Derived2>
   inline void skylineCholSolve(const Eigen::MatrixBase<Derived1>& L,
@@ -206,6 +255,7 @@ namespace chomp {
 
   }
 
+
   //////////////////////////////////////////////////////////////////////
 
   template <class Derived1, class Derived2>
@@ -226,6 +276,24 @@ namespace chomp {
     
   }
 
+  template <class Derived1, class Derived2, class Derived3>
+  inline void skylineCholSolveMulti(const Eigen::MatrixBase<Derived1>& L, 
+                              const Eigen::MatrixBase<Derived2>& xx_const,
+                              const Eigen::MatrixBase<Derived3>& result) {
+
+
+    int n = L.rows();
+    int m = xx_const.rows() / n;
+    assert(xx_const.rows() == m*n);
+
+    Eigen::MatrixBase<Derived2>& xx = 
+      const_cast<Eigen::MatrixBase<Derived2>&>(xx_const);
+
+    for (int i=0; i<m; ++i) {
+      skylineCholSolve(L, xx.block(n*i, 0, n, xx.cols()));
+    }
+    
+  }
 
   template <class Derived>
   inline MatX getPos(const Eigen::MatrixBase<Derived>& x,

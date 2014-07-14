@@ -32,6 +32,8 @@
 */
 
 #include "Chomp.h"
+#include "../mzcommon/gauss.h"
+
 #include <assert.h>
 #include <mzcommon/TimeUtil.h>
 
@@ -153,10 +155,7 @@ void testMaps() {
   
 }
 
-
-int main(int argc, char** argv) { 
-
-
+int primary( int argc, char ** argv ){
   int n = 7;
 
   if (argc > 1) { 
@@ -180,15 +179,22 @@ int main(int argc, char** argv) {
   
   coeffs << 1, -4, 6;
 
-  MatX L, Ls;
+  MatX Ainv = A.inverse();
 
+  MatX L, Ls;
+  MatX testvec = MatX::Random(n, 2 );
+  MatX testvec2 = testvec;
   MatX m1(n,n); m1.setIdentity();
   MatX m2(n,n); m2.setIdentity();
   MatX m3(n,n); m3.setIdentity();
   MatX m4(n,n); m4.setIdentity();
+  MatX m5(n,n); m5.setIdentity();
+  MatX m6(n,n); m6.setIdentity();
   MatX work;
 
-  Eigen::LLT<MatX> cholSolver(n);
+  Eigen::LLT<MatX> cholSolver(A);
+  Eigen::LLT<MatX> cholSolver2(Ainv);
+  Eigen::LLT<MatX> cholSolver3(n);
 
   TimeStamp t0 = TimeStamp::now();
 
@@ -213,7 +219,25 @@ int main(int argc, char** argv) {
   diagMul(coeffs, m4, m3);
 
   TimeStamp t5 = TimeStamp::now();
+    
+  MatX ell = cholSolver2.matrixL();
+  MatX ell_mult = ell * testvec;
+  
+  TimeStamp t6 = TimeStamp::now();
+  
+  cholSolver3.compute( A );
+  MatX ell2 = cholSolver3.matrixL();
+  MatX ell2_inv = ell2.inverse();
+  MatX ell_mult2 = ell2_inv * testvec;
 
+  skylineCholMultiplyInverse( Ls, m5 );
+  skylineCholMultiplyInverseTranspose( Ls, m5 );
+   
+  
+  skylineCholMultiplyInverseTranspose( Ls, testvec);
+  
+  TimeStamp t7 = TimeStamp::now();
+  
   MatX x0(1,1), x1(1,1);
   x0(0) = -1;
   x1(0) = 1;
@@ -227,12 +251,8 @@ int main(int argc, char** argv) {
   double d4 = (t4-t3).toDouble();
   double d5 = (t5-t4).toDouble();
 
-  MatX Ainv = A.inverse();
-
-  assert( relErr(A, m3) < 1e-5 );
-  assert( relErr(m1, m2) < 1e-5 );
   
-
+  L = cholSolver.matrixL();
   if (n < 20) { 
     std::cout << "A =\n" << A << "\n";
     std::cout << "A =\n" << m3 << "\n";
@@ -241,7 +261,23 @@ int main(int argc, char** argv) {
     std::cout << "errm1 = \n" << m1-A.inverse() << "\n";
     std::cout << "m2 =\n" << m2 << "\n";
     std::cout << "errm2 = \n" << m2-A.inverse() << "\n";
+    std::cout << "ELL = \n" << ell <<"\n\n";
+    std::cout << "L-1 * identity = \n" << m5 <<"\n\n";
+    std::cout << "testvec = \n" << testvec <<"\n\n";
+    std::cout << "ell_mult = \n" << ell_mult <<"\n\n";
+    std::cout << "ell_mult2 = \n" << ell_mult2 <<"\n\n";
+
+    std::cout << "L = \n" << L  << "\n\n";
+    std::cout << "Diff = \n" << L - ell.inverse().transpose() << "\n\n";
+
   }
+  
+  assert( relErr(A, m3) < 1e-5 );
+  assert( relErr(m1, m2) < 1e-5 );
+
+  assert( relErr(m1, m2) < 1e-5 );
+  assert( relErr( m1, m5) < 1e-5 );
+  assert( relErr(testvec, ell_mult) < 1e-5 );
 
   std::cout << "with n=" << n << ", regular cholesky decomp took " << d1 << "s.\n";
   std::cout << "with n=" << n << ", regular cholesky solve took " << d2 << "s.\n";
@@ -253,3 +289,156 @@ int main(int argc, char** argv) {
 
 
 }
+
+int secondary( int argc, char ** argv ){
+  int n = 7;
+
+  if (argc > 1) { 
+    int nn = atoi(argv[1]);
+    if (nn) { n = nn; }
+  }
+
+  MatX A(n,n);
+  A.setZero();
+
+
+  for (int i=0; i<n; ++i) {
+    if (i+2 < n) { A(i,i+2) = 1; }
+    if (i+1 < n) { A(i,i+1) = -4; }
+    A(i,i) = 6;
+    if (i > 0) { A(i,i-1) = -4; }
+    if (i > 1) { A(i,i-2) = 1; }
+  }
+
+  MatX coeffs(1,3);
+  
+  coeffs << 1, -4, 6;
+
+  MatX Ainv = A.inverse();
+
+  MatX L, Ls;
+  MatX testvec = MatX::Random(n, 2 );
+  for ( int i = 0; i < testvec.size() ; i ++ ){
+      testvec(i) = gauss_ziggurat_standard();
+  }
+
+  std::cout << "Testvec= \n" << testvec << "\n\n";
+
+  MatX testvec2 = testvec;
+  MatX m1(n,n); m1.setIdentity();
+  MatX m2(n,n); m2.setIdentity();
+  MatX m3(n,n); m3.setIdentity();
+  MatX m4(n,n); m4.setIdentity();
+  MatX m5(n,n); m5.setIdentity();
+  MatX m6(n,n); m6.setIdentity();
+  MatX work;
+
+  Eigen::LLT<MatX> cholSolver(A);
+  Eigen::LLT<MatX> cholSolver2(Ainv);
+  Eigen::LLT<MatX> cholSolver3(n);
+
+  TimeStamp t0 = TimeStamp::now();
+
+
+  TimeStamp t1 = TimeStamp::now();
+
+  //regularCholSolve(L, m1);
+  m1 = cholSolver.solve(m1);
+
+  TimeStamp t2 = TimeStamp::now();
+
+  skylineChol(n, coeffs, Ls);
+
+  TimeStamp t3 = TimeStamp::now();
+  
+  skylineCholSolve(Ls, m2);
+
+  TimeStamp t4 = TimeStamp::now();
+
+  diagMul(coeffs, m4, m3);
+
+  TimeStamp t5 = TimeStamp::now();
+    
+  MatX ell = cholSolver2.matrixL();
+  MatX ell_mult = ell * testvec;
+  
+  TimeStamp t6 = TimeStamp::now();
+  
+  cholSolver3.compute( A );
+  MatX ell2 = cholSolver3.matrixL();
+  MatX ell2_inv = ell2.inverse().transpose();
+  MatX ell_mult2 = ell2_inv * testvec;
+
+  skylineCholMultiplyInverse( Ls, m5 );
+  
+  skylineCholMultiplyInverseTranspose( Ls, testvec);
+  
+  TimeStamp t7 = TimeStamp::now();
+  
+  MatX x0(1,1), x1(1,1);
+  x0(0) = -1;
+  x1(0) = 1;
+
+  //MatX b(n,1);
+  //createBMatrix(n, coeffs, x0, x1, b);
+
+  double d1 = (t1-t0).toDouble();
+  double d2 = (t2-t1).toDouble();
+  double d3 = (t3-t2).toDouble();
+  double d4 = (t4-t3).toDouble();
+  double d5 = (t5-t4).toDouble();
+
+  
+  L = cholSolver.matrixL();
+  if (n < 20) { 
+    std::cout << "A =\n" << A << "\n";
+    std::cout << "A =\n" << m3 << "\n";
+    std::cout << "A.inv() =\n" << A.inverse() << "\n";
+    std::cout << "m1 =\n" << m1 << "\n";
+    std::cout << "errm1 = \n" << m1-A.inverse() << "\n";
+    std::cout << "m2 =\n" << m2 << "\n";
+    std::cout << "errm2 = \n" << m2-A.inverse() << "\n";
+    std::cout << "L-1 * identity = \n" << m5 <<"\n\n";
+    std::cout << "testvec = \n" << testvec <<"\n\n";
+    std::cout << "ell_mult = \n" << ell_mult <<"\n\n";
+    std::cout << "ell_mult2 = \n" << ell_mult2 <<"\n\n";
+
+    std::cout << "L = \n" << L  << "\n\n";
+    std::cout << "ELL = \n" << ell <<"\n\n";
+    
+    std::cout << "L^-1 = \n" << L.inverse()  << "\n\n";
+    std::cout << "ELL^-1 = \n" << ell.inverse() <<"\n\n";
+
+    std::cout << "L^-T = \n" << L.inverse().transpose()  << "\n\n";
+    std::cout << "ELL^-T = \n" << ell.inverse().transpose()  << "\n\n";
+    
+    std::cout << "ELL*ELL^T = \n" << ell*ell.transpose()  << "\n\n";
+    std::cout << "(ELL*ELL^T)^-1 = \n" << (ell*ell.transpose()).inverse()  << "\n\n";
+    std::cout << "L*L^T = \n" << L*L.transpose()  << "\n\n";
+    std::cout << "Diff = \n" << L - ell.inverse().transpose() << "\n\n";
+
+  }
+  
+  assert( relErr(A, m3) < 1e-5 );
+  assert( relErr(m1, m2) < 1e-5 );
+
+  assert( relErr(m1, m2) < 1e-5 );
+  assert( relErr(testvec, ell_mult) < 1e-5 );
+
+  std::cout << "with n=" << n << ", regular cholesky decomp took " << d1 << "s.\n";
+  std::cout << "with n=" << n << ", regular cholesky solve took " << d2 << "s.\n";
+  std::cout << "with n=" << n << ", band cholesky decomp took " << d3 << "s. (" << 100*d3/d1 << "% of regular)\n";
+  std::cout << "with n=" << n << ", band cholesky solve took " << d4 << "s. (" << 100*d4/d2 << "% of regular)\n";
+  std::cout << "with n=" << n << ", band multiply took " << d5 << ".s\n";
+
+  return 0;
+
+
+
+}
+int main(int argc, char** argv) { 
+    //primary( argc, argv );
+    secondary( argc, argv );
+}
+
+

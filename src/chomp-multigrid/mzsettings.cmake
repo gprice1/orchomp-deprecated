@@ -39,7 +39,7 @@ set(CMAKE_C_FLAGS_DEBUG "-O")
 set(CMAKE_CXX_FLAGS_DEBUG "-O")
 
 set(CMAKE_C_FLAGS_RELEASE "-O3")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -fopenmp")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3")
 
 macro(add_gui_app name)
   if(APPLE)

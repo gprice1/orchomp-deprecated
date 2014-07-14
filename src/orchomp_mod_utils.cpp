@@ -1,5 +1,6 @@
 
 #include "orchomp_mod.h"
+#include "orchomp_kdata.h"
 
 namespace orchomp
 {

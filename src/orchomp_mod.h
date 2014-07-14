@@ -31,17 +31,17 @@
 #ifndef _ORCHOMP_MOD_H_
 #define _ORCHOMP_MOD_H_
 
-
-#include "chomp-multigrid/chomp/Chomp.h"
-#include "orchomp_distancefield.h"
-#include "orchomp_constraint.h"
-#include "orchomp_kdata.h"
-#include "orchomp_collision.h"
-
 #include <openrave/openrave.h>
 #include <openrave/planningutils.h>
-#include <stack>
 
+//data structures
+
+//classes for chomping
+#include "chomp-multigrid/chomp/Chomp.h"
+#include "orchomp_distancefield.h"
+#include "orchomp_sphere.h" 
+
+//timing utils
 #include "utils/timer.h"
 
 
@@ -54,6 +54,18 @@
 
 namespace orchomp
 {
+    //This holds information pertinent to the collision geometry, and
+    //   assists chomp in computing collision gradients.
+
+class SphereCollisionHelper;
+class ORConstraintFactory;
+class mod;
+class ORTSRConstraint;
+class ORHelper;
+
+
+
+
 //this is a structure used to hold and initialize values
 //  for an eventual call to chomp.
 class ChompInfo {
@@ -139,18 +151,27 @@ public:
 
     //____________________PUBLIC MEMBER VARIABLES____________________//
     OpenRAVE::EnvironmentBasePtr environment; /* filled on module creation */
- 
     //the  start, and endpoints.
     chomp::MatX  q0, q1;
+
+    //this is a pointer to the chomp class that will pull most of the
+    //   weight for the module.
+    chomp::Chomp * chomper;
+
+    //This holds information pertinent to the collision geometry, and
+    //   assists chomp in computing collision gradients.
     ORConstraintFactory * factory;
-   
+    SphereCollisionHelper * sphere_collider;
+    chomp::ChompCollGradHelper * collisionHelper;
+    chomp::ChompObserver * observer;
+
+    //an hmc object
+    chomp::HMC * hmc;
+ 
     //This holds basic info relating to an individual 
     //   run of chomp
     ChompInfo info;
   
-    // This observes chomp for general debugging purposes
-    chomp::DebugChompObserver observer;
-
     //these are useful for interfacing with the robot.
     OpenRAVE::RobotBasePtr robot;      // a pointer to the robot
     std::string robot_name;            // the name of the robot
@@ -164,10 +185,7 @@ public:
     //a vector containing the collision geometry
     std::vector< Sphere > active_spheres, inactive_spheres;
     
-    //This holds information pertinent to the collision geometry, and
-    //   assists chomp in computing collision gradients.
-    SphereCollisionHelper * sphere_collider;
-    chomp::ChompCollGradHelper * collisionHelper;
+
 
     //the upper and lower limits for the joints.
     std::vector< OpenRAVE::dReal > upperJointLimits, lowerJointLimits,
@@ -182,9 +200,7 @@ public:
     //this is a timer for timing things.
     Timer timer;
 
-    //this is a pointer to the chomp class that will pull most of the
-    //   weight for the module.
-    chomp::Chomp * chomper;
+
     
     //a pointer to an openrave trajectory, a call to gettraj, will fill
     //  this structure with the current chomp trajectory.
@@ -254,7 +270,10 @@ public:
     
     void delete_items();
     //Destructor
-    virtual ~mod() { delete_items(); }
+    virtual ~mod() { 
+        delete_items();
+        std::cout << "Done destruction" << std::endl;
+    }
 
     void Destroy() { RAVELOG_INFO("module unloaded from environment\n"); }
 

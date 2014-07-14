@@ -27,7 +27,7 @@
  
 
 #include "orchomp_mod.h"
-#include "orchomp_kdata.h"
+#include "orchomp_constraint.h"
 
 #define DOPARSE 0
 #define CREATEPARSE 1
@@ -268,6 +268,7 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
         else if (cmd == "obs_factor"){ sinput >> info.obs_factor; }
         else if (cmd == "obs_factor_self"){sinput >> info.obs_factor_self;}
         else if (cmd == "doobserve"){ info.doObserve = true;  }
+        else if (cmd == "noobserve"){ info.doObserve = false;  }
         else if ( cmd == "nofactory"){ info.noFactory = true;  }
         else if ( cmd == "nocollider"){ info.noCollider = true;  }
         else if ( cmd == "noselfcollision"){ info.noSelfCollision = true;  }

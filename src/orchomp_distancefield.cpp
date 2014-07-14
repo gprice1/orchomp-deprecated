@@ -1,6 +1,7 @@
 
 #include "orchomp_distancefield.h"
 #include "orchomp_mod.h"
+#include <stack>
 
 #define COLLISION -2
 #define NOCOLLISION -1

@@ -16,8 +16,8 @@ class Timer{
     class single_timer{
         public:
         std::string name;
-        struct timespec tic, toc;
-        double total, elapsed;
+        struct timespec tic, toc, wall_tic, wall_toc;
+        double total, elapsed, wall_total, wall_elapsed;
         unsigned int count;
         bool isStopped;
         
@@ -72,7 +72,8 @@ class Timer{
             index = timers.size() - 1;
         }
         timers[ index ].isStopped = false;
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &(timers[index].tic));
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(timers[index].tic));
+        clock_gettime(CLOCK_MONOTONIC, &(timers[index].wall_tic));
     }
     double stop( std::string name ){
         
@@ -80,14 +81,23 @@ class Timer{
 
         if ( !timerExists( name, index ) ){ return 0.0;}
 
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &(timers[index].toc));
-
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(timers[index].toc));
         CD_OS_TIMESPEC_SUB(&(timers[index].toc), &(timers[index].tic));
 
-        timers[index].elapsed = CD_OS_TIMESPEC_DOUBLE(&(timers[index].toc));
+        clock_gettime(CLOCK_MONOTONIC, &(timers[index].wall_toc));
+        CD_OS_TIMESPEC_SUB(&(timers[index].wall_toc),
+                           &(timers[index].wall_tic));
+
+        timers[index].elapsed = 
+                CD_OS_TIMESPEC_DOUBLE(&(timers[index].toc));
+        timers[index].wall_elapsed =
+                CD_OS_TIMESPEC_DOUBLE(&(timers[index].wall_toc));
         timers[index].total += timers[index].elapsed;
+        timers[index].wall_total += timers[index].wall_elapsed;
+
         timers[index].count ++;
         timers[index].isStopped = true;
+
         return timers[index].elapsed;
     }
 
@@ -97,6 +107,8 @@ class Timer{
 
         double temp = timers[index].total;
         timers[index].total = 0;
+        timers[index].count = 0;
+        timers[index].elapsed = 0;
         return temp;
     }
 
@@ -105,7 +117,22 @@ class Timer{
         if ( !timerExists( name, index ) ){ return 0.0;}
         return timers[index].total;
     }
-    
+    double getWallTotal( std::string name ){
+        int index = getIndex( name );
+        if ( !timerExists( name, index ) ){ return 0.0;}
+        return timers[index].wall_total;
+    }
+    double getWallElapsed( std::string name ){
+        int index = getIndex( name );
+        if ( !timerExists( name, index ) ){ return 0.0;}
+        return timers[index].wall_elapsed;
+    }
+    double getElapsed( std::string name ){
+        int index = getIndex( name );
+        if ( !timerExists( name, index ) ){ return 0.0;}
+        return timers[index].elapsed;
+    }
+
     //returns true if the timer is already in a start state, elsewise,
     //  it is started.
     bool tryStart( std::string name ){
@@ -119,7 +146,7 @@ class Timer{
 
         if ( timers[ index ].isStopped ){
             timers[ index ].isStopped = false;
-            clock_gettime(CLOCK_THREAD_CPUTIME_ID, &(timers[index].tic));
+            clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(timers[index].tic));
             return false;
         }
 
@@ -135,7 +162,7 @@ class Timer{
             return true;
         }
 
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &(timers[index].toc));
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(timers[index].toc));
 
         CD_OS_TIMESPEC_SUB(&(timers[index].toc), &(timers[index].tic));
 
@@ -159,11 +186,11 @@ class Timer{
         struct timespec ticks_toc;
 
         /* start timing voxel grid computation */
-        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_tic);
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ticks_tic);
 
         while ( true ){
           /* stop timing voxel grid computation */
-          clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ticks_toc);
+          clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &ticks_toc);
           CD_OS_TIMESPEC_SUB(&ticks_toc, &ticks_tic);
           if ( time < CD_OS_TIMESPEC_DOUBLE(&ticks_toc) ){ break ; }
         }

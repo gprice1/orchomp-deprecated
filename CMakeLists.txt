@@ -8,7 +8,7 @@ endif( verbose )
 
 set( CMAKE_BUILD_TYPE Release)
 
-include(src/chomp-multigrid/mzsettings.cmake)
+include(settings.cmake)
 
 find_package(OpenRAVE REQUIRED)
 include_directories(${OpenRAVE_INCLUDE_DIRS})
@@ -28,10 +28,10 @@ set( ORCHOMPLIBS
     src/orchomp_distancefield.cpp
     src/orchomp_collision.cpp
     src/orchomp_constraint.cpp
+    src/orchomp_observer.cpp
 
     src/utils/os.c
     src/utils/util_shparse.c
-    src/utils/timer.h
     )
 
 #This is all of the ros stuff.

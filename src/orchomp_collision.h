@@ -22,6 +22,8 @@ public:
     // a pointer to the module for acces to stuff like the collision
     //  geometry
     mod * module;
+    
+    Timer timer;
 
     //the first <active_spheres> amount of spheres in the 
     // above vector are active.

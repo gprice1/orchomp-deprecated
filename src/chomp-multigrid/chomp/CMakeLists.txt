@@ -1,6 +1,12 @@
 
 
-add_library(chomp SHARED Constraint.cpp ConstraintFactory.cpp Chomp.cpp)
+add_library(chomp SHARED
+    Constraint.cpp
+    ConstraintFactory.cpp
+    Chomp.cpp
+    HMC.cpp
+    )
+
 target_link_libraries( chomp mzcommon )
 
 add_executable(testmatops testmatops.cpp)
@@ -15,7 +21,6 @@ set(demo_libs mzcommon chomp ${PNG_LIBRARY})
 if (${CAIRO_FOUND})
 set(demo_libs ${demo_libs} ${CAIRO_LDFLAGS})
 endif()
-
 target_link_libraries(circle_demo ${demo_libs})
 target_link_libraries(map2d_demo ${demo_libs})
 
