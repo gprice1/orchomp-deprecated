@@ -86,61 +86,10 @@ namespace chomp {
     }
   }
 
-  template <class Derived1, class Derived2, class Derived3, class Derived4>
-  inline void diagMulGoalSet(const Eigen::MatrixBase<Derived1>& coeffs,
-                             const Eigen::MatrixBase<Derived2>& gs_coeffs,
-                             const Eigen::MatrixBase<Derived3>& x,
-                             const Eigen::MatrixBase<Derived4>& Ax_const ){
-
-    assert( Ax_const.rows() == x.rows() && Ax_const.cols() == x.cols() );
-
-    Eigen::MatrixBase<Derived4>& Ax = 
-      const_cast<Eigen::MatrixBase<Derived4>&>(Ax_const);
-    
-    //in the case that we are doing goal chomp, n != x.rows(),
-    //  so if goal chomp is being done, then, the correct value of n,
-    //  should be passed in.
-    int n = x.rows();
-
-    int nc = coeffs.rows() * coeffs.cols();
-    int o = nc-1;
-
-    for (int i=0; i<x.rows()-2; ++i) {
-
-      int j0 = std::max(i-o, int(0));
-      int j1 = std::min(i+nc, n );
-      
-      Ax.row(i) = x.row(j0) * coeffs(j0-i+o);
-
-      for (int j=j0+1; j<=i; ++j) {
-        Ax.row(i) += x.row(j) * coeffs(j-i+o);
-      }
-    
-      for (int j=i+1; j<j1; ++j) {
-        Ax.row(i) += x.row(j) * coeffs(i-j+o);
-      }
-    }
-    
-    //this corrects the matrix for goal set chomp. 
-    for ( int i = 0; i < gs_coeffs.rows(); i ++ ){
-        
-      int ax_row = Ax.rows() - gs_coeffs.rows() + i;
-
-      for ( int j = 0; j < gs_coeffs.cols(); j ++ ){
-        int x_row = x.rows() - gs_coeffs.cols() + i;
-
-        Ax.row( ax_row ) += x.row( x_row ) * gs_coeffs( i, j );
-      }
-    }
-
-            
-  }
-
-  //////////////////////////////////////////////////////////////////////
-
-  template <class Derived1, class Derived2>
+template <class Derived1, class Derived2>
   void skylineChol(int n,
-                   const Eigen::MatrixBase<Derived1>& coeffs, // e.g. [-1,2] or [1,-4,6]
+                   // e.g. [-1,2] or [1,-4,6]
+                   const Eigen::MatrixBase<Derived1>& coeffs,
                    Eigen::PlainObjectBase<Derived2>& L) {
 
     int nc = coeffs.rows() * coeffs.cols();
@@ -172,7 +121,6 @@ namespace chomp {
     }
 
   }
-
   //////////////////////////////////////////////////////////////////////
   //This is used by the HMC class to generate random smooth momenta.
   template <class Derived1, class Derived2>
@@ -276,24 +224,6 @@ namespace chomp {
     
   }
 
-  template <class Derived1, class Derived2, class Derived3>
-  inline void skylineCholSolveMulti(const Eigen::MatrixBase<Derived1>& L, 
-                              const Eigen::MatrixBase<Derived2>& xx_const,
-                              const Eigen::MatrixBase<Derived3>& result) {
-
-
-    int n = L.rows();
-    int m = xx_const.rows() / n;
-    assert(xx_const.rows() == m*n);
-
-    Eigen::MatrixBase<Derived2>& xx = 
-      const_cast<Eigen::MatrixBase<Derived2>&>(xx_const);
-
-    for (int i=0; i<m; ++i) {
-      skylineCholSolve(L, xx.block(n*i, 0, n, xx.cols()));
-    }
-    
-  }
 
   template <class Derived>
   inline MatX getPos(const Eigen::MatrixBase<Derived>& x,
@@ -354,6 +284,110 @@ namespace chomp {
 
   }
   
+  
+  //this is a diag mul for goal set chomp
+  template <class Derived1, class Derived2, class Derived3, class Derived4>
+  inline void diagMul(const Eigen::MatrixBase<Derived1>& coeffs,
+                             const Eigen::MatrixBase<Derived2>& gs_coeffs,
+                             const Eigen::MatrixBase<Derived3>& x,
+                             const Eigen::MatrixBase<Derived4>& Ax_const ){
+
+    assert( Ax_const.rows() == x.rows() && Ax_const.cols() == x.cols() );
+
+    Eigen::MatrixBase<Derived4>& Ax = 
+      const_cast<Eigen::MatrixBase<Derived4>&>(Ax_const);
+    
+    //in the case that we are doing goal chomp, n != x.rows(),
+    //  so if goal chomp is being done, then, the correct value of n,
+    //  should be passed in.
+    int n = x.rows();
+
+    int nc = coeffs.rows() * coeffs.cols();
+    int o = nc-1;
+    
+    const int start_gs = x.rows() - gs_coeffs.rows();
+
+    for (int i=0; i<x.rows(); ++i) {
+
+      int j0 = std::max(i-o, int(0));
+      int j1 = std::min(i+nc, n );
+      
+      Ax.row(i) = x.row(j0) * coeffs(j0-i+o);
+
+      for (int j=j0+1; j<=i; ++j) {
+        double coeff;
+        if ( i >= start_gs && j >= start_gs ){ 
+            coeff = gs_coeffs( i - start_gs, j - start_gs );
+        }else { coeff = coeffs(j-i+o); }
+
+        Ax.row(i) += x.row(j) * coeff;
+      }
+    
+      for (int j=i+1; j<j1; ++j) {
+        double coeff;
+        if ( i >= start_gs && j >= start_gs ){ 
+            coeff = gs_coeffs( i - start_gs, j - start_gs );
+        }else { coeff = coeffs(i-j+o); }
+
+        Ax.row(i) += x.row(j) * coeff;
+      }
+    }
+  }
+
+  //////////////////////////////////////////////////////////////////////
+  /////////// GOAL SET OPERATIONS ARE BELOW ///////////////////////////
+  ////////////////////////////////////////////////////////////////////
+
+  //this is a skyline chol for goal set chomp
+  template <class Derived1, class Derived2, class Derived3>
+  void skylineChol(int n,
+                   const Eigen::MatrixBase<Derived1>& coeffs,
+                   const Eigen::MatrixBase<Derived2>& gs_coeffs,
+                   Eigen::PlainObjectBase<Derived3>& L) {
+
+    int nc = coeffs.size();
+    int o = nc-1;
+
+    const int start_gs = n - gs_coeffs.rows();
+
+    L.resize(n, nc);
+  
+    for (int j=0; j<n; ++j) {
+      
+      //i1 is the current row, forwarded by the amount of coeffs.
+      int i1 = std::min(j+nc, n);
+      
+      for (int i=j; i<i1; ++i) {
+
+        double sum = 0;
+
+        int k0 = std::max(0,i-o);
+
+        for (int k=k0; k<j; ++k) {
+          sum += L(i,k-i+o) * L(j,k-j+o); // k < j < i
+        }
+        
+        if (i == j) {
+          double coeff;
+          if ( i >= start_gs ){
+            coeff = gs_coeffs( i - start_gs , i - start_gs);
+          } else { coeff = coeffs(o); }
+
+          L(j,o) = sqrt(coeff - sum);
+
+        } else {
+          double coeff;
+          if ( i >= start_gs && j >= start_gs){
+            coeff = gs_coeffs( i - start_gs, j - start_gs);
+          } else { coeff = coeffs(j-i+o); }
+
+          L(i,j-i+o) = (coeff - sum) / L(j,o);
+
+        }
+      }
+    }
+  }
+
 
   //This version of createBMatrix is used for goal set chomp.
   template <class Derived1, class Derived2, class Derived3>
@@ -390,8 +424,6 @@ namespace chomp {
     return 0.5*c;
 
   }
-
-
 }
 
 

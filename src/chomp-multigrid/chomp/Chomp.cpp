@@ -237,9 +237,21 @@ namespace chomp {
     }
 
   }
+  
+  //this sets up an iteration of 'normal' chomp, as opposed to
+  //    goal set chomp.
+  void Chomp::prepareStandardChomp(){
+    skylineChol(N, coeffs, L);
+
+    b.resize(N,M);
+    b.setZero();
+
+    c = createBMatrix(N, coeffs, q0, q1, b, dt);
+
+    g.resize(N,M);
+  }
 
   void Chomp::prepareChomp() {
-    
     
     if (objective_type == MINIMIZE_VELOCITY) {
 
@@ -259,25 +271,31 @@ namespace chomp {
 
     }
     
+    dt = t_total / (N+1);
+    inv_dt = (N+1) / t_total;
+
+    if (objective_type == MINIMIZE_VELOCITY) {
+      fscl = inv_dt*inv_dt;
+    } else {
+      fscl = inv_dt*inv_dt*inv_dt;
+    }
+
+    cur_global_iter = 0;
+    cur_local_iter = 0;
+
     clearConstraints();
-
-
 
     if (factory) {
       factory->getAll(N, constraints);
     }
+    
 
-    skylineChol(N, coeffs, L);
+    if( usingGoalSet ){ prepareGoalSet(); }
+    else { prepareStandardChomp(); }
 
-    b.resize(N,M);
-    b.setZero();
-
-    c = createBMatrix(N, coeffs, q0, q1, b, dt);
-
-    g.resize(N,M);
 
     // decide whether base case or not
-    bool subsample = (N > minN);
+    bool subsample = ( N > minN && !usingGoalSet );
     if (full_global_at_final && N >= maxN) {
       subsample = false;
     }
@@ -297,17 +315,6 @@ namespace chomp {
       skylineChol(N_sub , coeffs_sub, L_sub); 
     }
 
-    dt = t_total / (N+1);
-    inv_dt = (N+1) / t_total;
-
-    if (objective_type == MINIMIZE_VELOCITY) {
-      fscl = inv_dt*inv_dt;
-    } else {
-      fscl = inv_dt*inv_dt*inv_dt;
-    }
-
-    cur_global_iter = 0;
-    cur_local_iter = 0;
 
   }
   
@@ -315,7 +322,8 @@ namespace chomp {
 
     Ax.resize(xi.rows(), xi.cols());
 
-    diagMul(coeffs, xi, Ax);
+    if( usingGoalSet ){ diagMul(coeffs, goalset_coeffs, xi, Ax); }
+    else { diagMul(coeffs, xi, Ax); }
 
     g = Ax + b;
     if (ghelper) {
@@ -416,6 +424,9 @@ namespace chomp {
       }
       lastObjective = curObjective;
     }
+
+    if (usingGoalSet){ finishGoalSet(); }
+
     cur_global_iter = 0;
 
     if (full_global_at_final && N >= maxN) {
@@ -448,6 +459,8 @@ namespace chomp {
       }
       lastObjective = curObjective;
     }
+    
+    std::cout << "\nDone with global chomp" << std::endl;
 
     if (factory && N_sub) {
       factory->evaluate(constraints, xi, h, H);
@@ -603,7 +616,6 @@ namespace chomp {
     // see if we're in our base case (not subsampling)
     bool subsample = N_sub != 0;
     
-
     const MatX& H_which = subsample ? H_sub : H;
     const MatX& g_which = subsample ? g_sub : g;
     const MatX& L_which = subsample ? L_sub : L;
@@ -884,171 +896,27 @@ namespace chomp {
       usingGoalSet = true;
   }
 
-  //runs goal set chomp for the given resolution level
-  void Chomp::chompGoalSet(){
 
+  void Chomp::prepareGoalSet(){
     
-    //TODO : put in stuff to set up a run
-
-    prepareGoalSetRun();
-    prepareGoalSetIter();
-
-    bool notGoodEnough = true;
-
-    lastObjective = evaluateObjective();
-    //std::cout << "initial objective is " << lastObjective << "\n";
-
-    
-    cur_global_iter = 0;
-
-    while (notGoodEnough) {
-      goalSetIteration();
-      ++cur_global_iter;
-      ++total_global_iter;
-
-      prepareGoalSetIter();
-      
-      double curObjective = evaluateObjective();
-
-      //check to see if the any of the termination states have
-      //    been reached.
-      if ( cur_global_iter > min_global_iter && (
-          goodEnough(lastObjective, curObjective) ||
-          cur_global_iter >= max_global_iter)) {
-        notGoodEnough = false;
-      }
-
-      //check for a timeout
-      if (canTimeout && stop_time < TimeStamp::now() ){
-          notGoodEnough = false;
-          didTimeout = true;
-          notify(CHOMP_TIMEOUT, cur_global_iter, 
-                 curObjective, lastObjective, hmag);
-
-      } else if (notify(CHOMP_GOALSET_ITER, cur_global_iter, 
-                 curObjective, lastObjective, hmag)) {
-        notGoodEnough = false;
-      }
-      lastObjective = curObjective;
-    }
-
-    //TODO put in stuff to setup subsequent runs of normal chomp.
-
-  }
-
-  //run a single iteration of goal set chomp
-  void Chomp::goalSetIteration(){
-
-    assert(xi.rows() == N && xi.cols() == M);
-    assert(Ax.rows() == N && Ax.cols() == M);
-
-    if (H.rows() == 0) {
-
-      assert( g.rows() == xi.rows() );
-
-      delta = alpha * g;
-      skylineCholSolveMulti(L, delta);
-      
-      lockTrajectory();
-      xi -= delta;
-      unlockTrajectory();
-
-    } else {
-
-      P = H.transpose();
-      
-      // TODO: see if we can make this more efficient?
-      for (int i=0; i<P.cols(); i++){
-        skylineCholSolveMulti(L, P.col(i));
-      }
-
-      debug << "H = \n" << H << "\n";
-      debug << "P = \n" << P << "\n";
-  
-      HP = H*P;
-
-      cholSolver.compute(HP);
-      Y = cholSolver.solve(P.transpose());
-
-      debug << "HP*Y = \n" << HP*Y << "\n";
-      debug << "P.transpose() = \n" << P.transpose() << "\n";
-      debug_assert( P.transpose().isApprox( HP*Y ) );
-
-      int newsize = H.cols();
-      assert(newsize == N * M);
-
-      assert(g.rows() == N && g.cols() == M);
-    
-      Eigen::Map<const Eigen::MatrixXd> g_flat(g.data(), newsize, 1);
-
-      assert(g_flat.rows() == newsize && g_flat.cols() == 1);
-
-      debug << "g = \n" << g << "\n";
-      debug << "g_flat = \n" << g_flat << "\n";
-
-      W = (MatX::Identity(newsize,newsize) - H.transpose() * Y)*g_flat;
-      
-      skylineCholSolveMulti(L, W);
-
-      Y = cholSolver.solve(h);
-
-      debug_assert( h.isApprox(HP*Y) );
-
-      delta = alpha * W + P * Y;
-      assert(delta.rows() == newsize && delta.cols() == 1);
-
-
-      Eigen::Map<const Eigen::MatrixXd> delta_rect(delta.data(), N, M);
-      
-      debug << "delta = \n" << delta << "\n";
-      debug << "delta_rect = \n" << delta_rect << "\n";
-      
-      assert(delta_rect.rows() == N && delta_rect.cols() == M);
-
-      lockTrajectory();
-      
-      xi -= delta_rect;
-      
-      unlockTrajectory();
-    }
-
-  }
-
-  void Chomp::prepareGoalSetRun(){
-    
+    //resize xi, and add q1 into it.
     xi.conservativeResize( xi.rows() + 1, xi.cols() );
     xi.row( xi.rows() - 1 ) = q1;
     int n = xi.rows();
 
     if (objective_type == MINIMIZE_VELOCITY) {
-
-      coeffs.resize(1,2);
       goalset_coeffs.resize(1,1);
-
-      coeffs << -1, 2;
-      goalset_coeffs << -1;
+      goalset_coeffs << 1;
 
     } else {
-    
-      coeffs.resize(1,3);
       goalset_coeffs.resize(2,2);
-      
-      coeffs << 1, -4, 6;
-      goalset_coeffs << -1, 2,
-                         2, -5 ;
-
+      goalset_coeffs << 6, -3,
+                       -3,  2 ;
     }
     
-    clearConstraints();
+    constraints.push_back( goalset );
 
-    if (factory) {
-      factory->getAll( n-1, constraints);
-    }
-    if (usingGoalSet ){
-      constraints.push_back( goalset );
-    }
-
-    skylineChol( n, coeffs, L);
+    skylineChol( n, coeffs, goalset_coeffs, L);
 
     b.resize(n,M);
     b.setZero();
@@ -1057,56 +925,31 @@ namespace chomp {
 
     g.resize(n,M);
 
+    //if we are doing goal set chomp, we should not subsample
     N_sub = 0;
 
-    dt = t_total / (n);
-    inv_dt = (n) / t_total;
-
-    if (objective_type == MINIMIZE_VELOCITY) {
-      fscl = inv_dt*inv_dt;
-    } else {
-      fscl = inv_dt*inv_dt*inv_dt;
-    }
-
-    cur_global_iter = 0;
-    cur_local_iter = 0;
+    N = n;
   }
 
+  void Chomp::finishGoalSet(){
+    
+    std::cout << "Finishing goal set" << std::endl;
 
-  void Chomp::prepareGoalSetIter(){
+    usingGoalSet = false;
 
-      
-    // compute gradient, constraint & Jacobian and subsample them if
-    // needed
+    q1 = xi.row( xi.rows() - 1 );
+    xi.conservativeResize( xi.rows() -1, xi.cols() );
+    
+    N = xi.rows();
 
-    // get the gradient
-    Ax.conservativeResize(xi.rows(), xi.cols());
+    //remove the goal constraint, so that it is not deleted along
+    //  with the other constraints.
+    constraints.pop_back();
+    
+    std::cout << "Preparing chomp" <<std::endl;
 
-    diagMulGoalSet(coeffs, goalset_coeffs, xi, Ax);
-    g = Ax + b;
-
-    if (ghelper) {
-      fextra = ghelper->addToGradient(*this, g);
-    } else {
-      fextra = 0;
-    }
-
-
-    // should we instead grab relevant blocks from this for local
-    // smoothing?
-    if (factory) {
-      factory->evaluate(constraints, xi, h, H);
-    }
-
-
-    if (h.rows()) {
-      hmag = h.lpNorm<Eigen::Infinity>();
-      debug << "in prepareChompIter, ||h|| = " << hmag << "\n";
-    } else if (h_sub.rows()) { 
-      hmag = h_sub.lpNorm<Eigen::Infinity>();
-      debug << "in prepareChompIter, ||h|| = " << hmag << "\n";
-    } else {
-      hmag = 0;
-    }
+    prepareChomp();
+    std::cout << "Done Preparing chomp" <<std::endl;
   }
-}
+}// namespace
+

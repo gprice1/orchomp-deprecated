@@ -277,9 +277,13 @@ namespace chomp {
     void updateGradient();
 
     void clearConstraints();
-    
+
     //prepares chomp to be run at a resolution level
     void prepareChomp();    
+
+    //prepare a run of standard chomp, as opposed to goal set chomp.
+    //  this is called by the function 'prepareChomp'
+    void prepareStandardChomp();
 
     // precondition: prepareChomp was called for this resolution level
     void prepareChompIter();
@@ -332,18 +336,12 @@ namespace chomp {
     //Give a goal set in the form of a constraint for chomp to use on the
     //  first resolution level.
     void useGoalSet( Constraint * goalset );
-
-    //runs goal set chomp for the given resolution level
-    void chompGoalSet();
     
-    //must be run before each call to goalSetIteration
-    void prepareGoalSetIter();
+    //call before running goal set chomp;
+    void prepareGoalSet();
 
-    //run a single iteration of goal set chomp
-    void goalSetIteration();
-
-    void prepareGoalSetRun();
-        
+    //call after running goal set chomp.
+    void finishGoalSet(); 
   };
 
 
