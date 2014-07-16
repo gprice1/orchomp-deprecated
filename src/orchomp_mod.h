@@ -162,7 +162,6 @@ public:
     //   assists chomp in computing collision gradients.
     ORConstraintFactory * factory;
     SphereCollisionHelper * sphere_collider;
-    chomp::ChompCollGradHelper * collisionHelper;
     chomp::ChompObserver * observer;
 
     //an hmc object

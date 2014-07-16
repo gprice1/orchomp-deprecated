@@ -41,7 +41,7 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
     OpenRAVE::ModuleBase(penv), environment( penv ),
     chomper( NULL ),
     factory( NULL ), sphere_collider( NULL ),
-    collisionHelper( NULL ), observer( NULL ), hmc( NULL )
+    observer( NULL ), hmc( NULL )
 {
     RAVELOG_INFO( "Constructing\n");
       __description = "orchomp: implementation multigrid chomp";
@@ -666,15 +666,14 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
 
     //give chomp a collision helper to 
     //deal with collision and gradients.
+
+    std::cout << "Making collider" << std::endl;
     if (sphere_collider){
-        //if a collision helper already exists, delete it, and make a new
-        //  one.
-        if ( collisionHelper ){ delete collisionHelper; }
-        collisionHelper = new chomp::ChompCollGradHelper(
-                                sphere_collider, info.gamma);
-        chomper->ghelper = collisionHelper;
+        sphere_collider->gamma = info.gamma;
+        chomper->ghelper = sphere_collider;
     }
 
+    std::cout << "Done Making collider" << std::endl;
     
     if ( info.doObserve ){
         observer = new chomp::DebugChompObserver();
@@ -693,6 +692,8 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
         robot = environment->GetRobot( robot_name.c_str() );
     }
     
+    std::cout << "Starting Chomp" << std::endl;
+    
     timer.start( "CHOMP run" );
     //solve chomp
     chomper->solve( info.doGlobal, info.doLocal );
@@ -701,29 +702,29 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     double wallTime = timer.getWallElapsed("CHOMP run");
 
     RAVELOG_INFO( "Chomp process time %fs\n", elapsedTime );
-    RAVELOG_INFO( "Chomp wall time    %fs\n", wallTime );
     
-    RAVELOG_INFO( "Collision process time:      %fs\n",
+    RAVELOG_INFO( "\tCollision process time:      %fs\n",
                    sphere_collider->timer.getTotal( "collision"));
-    RAVELOG_INFO( "Collision FK process time:   %fs\n",
+    RAVELOG_INFO( "\tCollision FK process time:   %fs\n",
                    sphere_collider->timer.getTotal( "FK"));
-    RAVELOG_INFO( "Collision Jacobian process time: %fs\n",
+    RAVELOG_INFO( "\tCollision Jacobian process time: %fs\n",
                    sphere_collider->timer.getTotal( "jacobian"));
-    RAVELOG_INFO( "xform Collision process time:  %fs\n",
-                   sphere_collider->timer.getTotal( "xform"));
+    RAVELOG_INFO( "\tSDF Collision process time:  %fs\n",
+                   sphere_collider->timer.getTotal( "sdf collision"));
+    RAVELOG_INFO( "\tSelf Collision process time: %fs\n",
+                   sphere_collider->timer.getTotal( "self collision"));
 
-    RAVELOG_INFO( "Collision wall time:      %fs\n",
+    RAVELOG_INFO( "Chomp wall time    %fs\n", wallTime );
+    RAVELOG_INFO( "\tCollision wall time:      %fs\n",
                    sphere_collider->timer.getWallTotal( "collision"));
-    RAVELOG_INFO( "Collision FK wall time:   %fs\n",
+    RAVELOG_INFO( "\tCollision FK wall time:   %fs\n",
                    sphere_collider->timer.getWallTotal( "FK"));
-    RAVELOG_INFO( "Collision Jacobian wall time: %fs\n",
+    RAVELOG_INFO( "\tCollision Jacobian wall time: %fs\n",
                    sphere_collider->timer.getWallTotal( "jacobian"));
-    RAVELOG_INFO( "SDF Collision wall time:  %fs\n",
+    RAVELOG_INFO( "\tSDF Collision wall time:  %fs\n",
                    sphere_collider->timer.getWallTotal( "sdf collision"));
-    RAVELOG_INFO( "Self Collision wall time: %fs\n",
+    RAVELOG_INFO( "\tSelf Collision wall time: %fs\n",
                    sphere_collider->timer.getWallTotal( "self collision"));
-    RAVELOG_INFO( "Xform Collision wall time: %fs\n",
-                   sphere_collider->timer.getWallTotal( "xform"));
    
     RAVELOG_INFO( "Done Iterating" ); 
     return true;
@@ -889,10 +890,6 @@ void mod::delete_items(){
     if (factory){
         delete factory;
         factory = NULL;
-    }
-    if (collisionHelper){ 
-        delete collisionHelper;
-        collisionHelper = NULL;
     }
     if (observer){
         delete observer;

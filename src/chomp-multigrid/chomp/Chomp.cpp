@@ -140,10 +140,9 @@ namespace chomp {
 
           wkspace_vel = dx_dq * cspace_vel;
 
-          //this prevents nans from propagating.
-          if (wkspace_vel.isZero()){
-              continue;
-          }
+          //this prevents nans from propagating. Several lines below, 
+          //    wkspace_vel /= wv_norm if wv_norm is zero, nans propogate.
+          if (wkspace_vel.isZero()){ continue; }
 
           wkspace_accel = dx_dq * cspace_accel;
           
@@ -167,9 +166,7 @@ namespace chomp {
          
 
         }
-        
       }
-
     }
     return total;
 
@@ -205,7 +202,8 @@ namespace chomp {
     t_total(tt),
     timeout_seconds( timeout_seconds ),
     didTimeout( false ),
-    using_mutex( false ),
+    use_mutex( false ),
+    use_goalset( false ),
     use_momentum( use_momentum ),
     hmc( NULL )
   {
@@ -224,7 +222,7 @@ namespace chomp {
   }
  
   void Chomp::initMutex(){
-      using_mutex = true;
+      use_mutex = true;
       pthread_mutex_init( &trajectory_mutex, NULL );
   }
 
@@ -290,12 +288,12 @@ namespace chomp {
     }
     
 
-    if( usingGoalSet ){ prepareGoalSet(); }
+    if( use_goalset ){ prepareGoalSet(); }
     else { prepareStandardChomp(); }
 
 
     // decide whether base case or not
-    bool subsample = ( N > minN && !usingGoalSet );
+    bool subsample = ( N > minN && !use_goalset );
     if (full_global_at_final && N >= maxN) {
       subsample = false;
     }
@@ -322,7 +320,7 @@ namespace chomp {
 
     Ax.resize(xi.rows(), xi.cols());
 
-    if( usingGoalSet ){ diagMul(coeffs, goalset_coeffs, xi, Ax); }
+    if( use_goalset ){ diagMul(coeffs, goalset_coeffs, xi, Ax); }
     else { diagMul(coeffs, xi, Ax); }
 
     g = Ax + b;
@@ -425,7 +423,7 @@ namespace chomp {
       lastObjective = curObjective;
     }
 
-    if (usingGoalSet){ finishGoalSet(); }
+    if (use_goalset){ finishGoalSet(); }
 
     cur_global_iter = 0;
 
@@ -893,7 +891,7 @@ namespace chomp {
 
   void Chomp::useGoalSet( Constraint * goalset ){
       this->goalset = goalset;
-      usingGoalSet = true;
+      use_goalset = true;
   }
 
 
@@ -935,7 +933,7 @@ namespace chomp {
     
     std::cout << "Finishing goal set" << std::endl;
 
-    usingGoalSet = false;
+    use_goalset = false;
 
     q1 = xi.row( xi.rows() - 1 );
     xi.conservativeResize( xi.rows() -1, xi.cols() );

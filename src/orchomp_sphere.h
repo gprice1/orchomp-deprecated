@@ -5,6 +5,8 @@
 
 namespace orchomp{
 
+class CollisionDataCache;
+
 class Sphere
 {
   public:
@@ -20,6 +22,8 @@ class Sphere
     //the name of the kinbody it is linked to;
     std::string linkname; 
     
+    CollisionDataCache * cache;
+    
     //the index of the robot link
     int linkindex;
 
@@ -29,9 +33,8 @@ class Sphere
     //  xyz vector.
     OpenRAVE::Vector position;
 
-    Sphere() : link( NULL ), linkindex(-1){}
+    Sphere() : link( NULL ), cache( NULL), linkindex(-1){}
 };
-
 
 }//namespace orchomp
 

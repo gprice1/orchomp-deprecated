@@ -217,7 +217,7 @@ namespace chomp {
     TimeStamp stop_time;
 
     pthread_mutex_t trajectory_mutex;
-    bool using_mutex;
+    bool use_mutex;
 
     Eigen::LDLT<MatX> cholSolver;
 
@@ -225,7 +225,7 @@ namespace chomp {
     
     //used for goal set chomp.
     Constraint * goalset;
-    bool usingGoalSet;
+    bool use_goalset;
     MatX goalset_coeffs;
      
     bool use_momentum;
@@ -257,17 +257,17 @@ namespace chomp {
           bool use_momentum = false);
     
     ~Chomp(){
-        if( using_mutex ){
+        if( use_mutex ){
             pthread_mutex_destroy( &trajectory_mutex );
         }
     }
     void lockTrajectory(){
-        if (using_mutex){
+        if (use_mutex){
             pthread_mutex_lock( &trajectory_mutex );
         }
     }
     void unlockTrajectory(){
-        if (using_mutex){
+        if (use_mutex){
             pthread_mutex_unlock( &trajectory_mutex );
         }
     }

@@ -12,6 +12,10 @@ extern "C"
 }
 
 class Timer{
+
+  public:
+    bool print;
+  
   private:
     class single_timer{
         public:
@@ -46,6 +50,9 @@ class Timer{
 
 
   public:
+    
+    Timer() : print(false){}
+
     void coutElapsed( std::string name ){
         int index = getIndex( name );
         if ( timerExists( name, index ) ){
@@ -65,7 +72,10 @@ class Timer{
 
     void start( std::string name ){
         int index = getIndex( name );
-
+        
+        if ( print ){
+            std::cout << "Starting " << name << std::endl;
+        }
         if ( index < 0 ){
             single_timer timer( name );
             timers.push_back( timer );
@@ -78,6 +88,10 @@ class Timer{
     double stop( std::string name ){
         
         int index = getIndex( name );
+
+        if ( print ){
+            std::cout << "Stopping " << name << std::endl;
+        }
 
         if ( !timerExists( name, index ) ){ return 0.0;}
 

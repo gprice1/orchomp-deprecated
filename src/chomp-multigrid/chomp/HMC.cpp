@@ -26,7 +26,7 @@ void HMC::iteration(size_t cur_iteration, MatX & xi, MatX & momentum,
         
         //TODO should this be here?
         skylineCholMultiplyInverseTranspose(L, momentum);
-        std::cout << "\n\nMomentum: \n" << momentum << "\n";
+        //std::cout << "\n\nMomentum: \n" << momentum << "\n";
         
         //momentum *= alpha;
 
