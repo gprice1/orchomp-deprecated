@@ -82,9 +82,8 @@ public:
     ~DistanceField(){}
 
     OpenRAVE::dReal getDist( const OpenRAVE::Vector & pos ,
-                             vec3 & gradient);
+                                     vec3 & gradient);
     
-
     //gets the transform from the origin to the center of the cell at
     //  the specified indices.
     void getCenterFromIndex( size_t x, size_t y, size_t z,

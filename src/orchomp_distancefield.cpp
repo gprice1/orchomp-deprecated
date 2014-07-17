@@ -289,6 +289,7 @@ OpenRAVE::dReal DistanceField::getDist( const OpenRAVE::Vector & pos,
 
 
 
+
 //fills the reachable area with NOCOLLISION_EXPLORED
 void DistanceField::floodFill(int x1, int x2, 
                               int y1, int y2,

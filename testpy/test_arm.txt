@@ -5,8 +5,8 @@ create/
     doobserve/
     epsilon 0.10/
     epsilon_self 0.05/
-    obs_factor 0.0/
-    obs_factor_self 1.0/
+    obs_factor 0.8/
+    obs_factor_self 0.2/
 #    nofactory/
 #    nocollider/
     do_reject/
@@ -19,7 +19,7 @@ create/
 computedistancefield getall
 
 iterate/
-    alpha 0.001/
+    alpha 0.1/
     n 50/
     n_max 50/
     nolocal/

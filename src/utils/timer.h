@@ -5,6 +5,8 @@
 #include <time.h>
 #include <vector>
 #include <iostream>
+#include <boost/unordered_map.hpp>
+
 
 extern "C"
 {
@@ -19,34 +21,42 @@ class Timer{
   private:
     class single_timer{
         public:
-        std::string name;
         struct timespec tic, toc, wall_tic, wall_toc;
         double total, elapsed, wall_total, wall_elapsed;
         unsigned int count;
         bool isStopped;
         
-        single_timer(std::string & name) : name( name ), total( 0.0 ),
-                                           count( 0 ), isStopped( true ){}
+        single_timer() : 
+                total( 0.0 ), count( 0 ),
+                isStopped( true ){}
     };
+    typedef std::pair< std::string, single_timer> KeyValuePair;
+    typedef boost::unordered_map< std::string, single_timer > Map;
 
-    std::vector< single_timer > timers;
+    Map timers; 
+    
 
-    int getIndex( std::string name ){
+    single_timer * getTimer( std::string & name, bool post_error=true ){
+        
+        Map::iterator it = timers.find( name );
 
-        for ( int i = 0; i < int(timers.size()); i ++ ){
-            if( name == timers[i].name ){ return i; }
-        }
-        return -1;
-    }
-    bool timerExists( std::string & name, int index ){
-        if (index < 0){
+        //if the object exists, return the thing.
+        if ( it != timers.end() ){ return &(it->second); }
+        else if ( post_error ){
             std::cout << "No timer exists by the name: " 
-                      << name << std::endl;
-            return false;
+                      << name << "\n";
+            return NULL;
         }
-        return true;
-    }
 
+        //if the timer does not exist, create and return it.
+        KeyValuePair new_timer;
+        new_timer.first = name;
+
+        std::pair< Map::iterator, bool> inserted_element = 
+                       timers.insert( new_timer );
+
+        return &(inserted_element.first->second);
+    }
 
 
   public:
@@ -54,113 +64,99 @@ class Timer{
     Timer() : print(false){}
 
     void coutElapsed( std::string name ){
-        int index = getIndex( name );
-        if ( timerExists( name, index ) ){
+        single_timer * t = getTimer(name);
+        if ( t ){
             std::cout << "Timer [" << name << "] elapsed time: "
-                      << timers[ index ].elapsed << "s\n";
+                      << t->elapsed << "s\n";
         }
     }
 
     void coutTotal( std::string name ){
-        int index = getIndex( name );
-        if ( timerExists( name, index ) ){
-            std::cout << "Timer [" << name << "] total time: "
-                      << timers[ index ].total << "s\n";
+        single_timer * t = getTimer(name);
+        if ( t ){
+             std::cout << "Timer [" << name << "] total time: "
+                      << t->total << "s\n";
         }
     }
 
 
     void start( std::string name ){
-        int index = getIndex( name );
-        
+
+        single_timer * t = getTimer(name, false);
         if ( print ){
             std::cout << "Starting " << name << std::endl;
         }
-        if ( index < 0 ){
-            single_timer timer( name );
-            timers.push_back( timer );
-            index = timers.size() - 1;
-        }
-        timers[ index ].isStopped = false;
-        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(timers[index].tic));
-        clock_gettime(CLOCK_MONOTONIC, &(timers[index].wall_tic));
+
+        t->isStopped = false;
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(t->tic));
+        clock_gettime(CLOCK_MONOTONIC, &(t->wall_tic));
     }
     double stop( std::string name ){
         
-        int index = getIndex( name );
+        single_timer * t = getTimer(name);
+        if ( !t) {return 0.0;}
 
         if ( print ){
             std::cout << "Stopping " << name << std::endl;
         }
 
-        if ( !timerExists( name, index ) ){ return 0.0;}
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(t->toc));
+        CD_OS_TIMESPEC_SUB(&(t->toc), &(t->tic));
 
-        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(timers[index].toc));
-        CD_OS_TIMESPEC_SUB(&(timers[index].toc), &(timers[index].tic));
+        clock_gettime(CLOCK_MONOTONIC, &(t->wall_toc));
+        CD_OS_TIMESPEC_SUB(&(t->wall_toc), &(t->wall_tic));
 
-        clock_gettime(CLOCK_MONOTONIC, &(timers[index].wall_toc));
-        CD_OS_TIMESPEC_SUB(&(timers[index].wall_toc),
-                           &(timers[index].wall_tic));
+        t->elapsed = CD_OS_TIMESPEC_DOUBLE(&(t->toc));
+        t->wall_elapsed =CD_OS_TIMESPEC_DOUBLE(&(t->wall_toc));
+        t->total += t->elapsed;
+        t->wall_total += t->wall_elapsed;
 
-        timers[index].elapsed = 
-                CD_OS_TIMESPEC_DOUBLE(&(timers[index].toc));
-        timers[index].wall_elapsed =
-                CD_OS_TIMESPEC_DOUBLE(&(timers[index].wall_toc));
-        timers[index].total += timers[index].elapsed;
-        timers[index].wall_total += timers[index].wall_elapsed;
+        t->count ++;
+        t->isStopped = true;
 
-        timers[index].count ++;
-        timers[index].isStopped = true;
-
-        return timers[index].elapsed;
+        return t->elapsed;
     }
 
     double reset( std::string name){
-        int index = getIndex( name );
-        if ( !timerExists( name, index ) ){ return 0.0;}
+        single_timer * t = getTimer(name);
+        if ( !t ) {return 0.0;}
 
-        double temp = timers[index].total;
-        timers[index].total = 0;
-        timers[index].count = 0;
-        timers[index].elapsed = 0;
+        double temp = t->total;
+        t->total = 0;
+        t->count = 0;
+        t->elapsed = 0;
         return temp;
     }
 
     double getTotal( std::string name ){
-        int index = getIndex( name );
-        if ( !timerExists( name, index ) ){ return 0.0;}
-        return timers[index].total;
+        single_timer * t = getTimer(name);
+        if ( !t ) {return 0.0;}
+        return t->total;
     }
     double getWallTotal( std::string name ){
-        int index = getIndex( name );
-        if ( !timerExists( name, index ) ){ return 0.0;}
-        return timers[index].wall_total;
+        single_timer * t = getTimer(name);
+        if ( !t) {return 0.0;}
+        return t->wall_total;
     }
     double getWallElapsed( std::string name ){
-        int index = getIndex( name );
-        if ( !timerExists( name, index ) ){ return 0.0;}
-        return timers[index].wall_elapsed;
+        single_timer * t = getTimer(name);
+        if ( !t ) {return 0.0;} 
+        return t->wall_elapsed;
     }
     double getElapsed( std::string name ){
-        int index = getIndex( name );
-        if ( !timerExists( name, index ) ){ return 0.0;}
-        return timers[index].elapsed;
+        single_timer * t = getTimer(name);
+        if ( !t ) {return 0.0;}
+        return t->elapsed;
     }
 
     //returns true if the timer is already in a start state, elsewise,
     //  it is started.
     bool tryStart( std::string name ){
-        int index = getIndex( name );
+        single_timer * t = getTimer(name, false);
 
-        if ( index < 0 ){
-            single_timer timer( name );
-            timers.push_back( timer );
-            index = timers.size() - 1;
-        }
-
-        if ( timers[ index ].isStopped ){
-            timers[ index ].isStopped = false;
-            clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(timers[index].tic));
+        if ( t->isStopped ){
+            t->isStopped = false;
+            clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(t->tic));
             return false;
         }
 
@@ -170,28 +166,29 @@ class Timer{
     //returns the elapsed time if if the timer is already in a
     //  stopped state, elsewise, it is started.
     bool tryStop( std::string name ){
-        int index = getIndex( name );
-        if ( !timerExists( name, index ) ){ return 0.0;}
-        if ( timers[ index ].isStopped ){
+        single_timer * t = getTimer(name);
+
+        if ( !t ) {return false;}
+        if ( t->isStopped ){
             return true;
         }
 
-        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(timers[index].toc));
+        clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &(t->toc));
+        CD_OS_TIMESPEC_SUB(&(t->toc), &(t->tic));
 
-        CD_OS_TIMESPEC_SUB(&(timers[index].toc), &(timers[index].tic));
-
-        timers[index].elapsed = CD_OS_TIMESPEC_DOUBLE(&(timers[index].toc));
-        timers[index].total += timers[index].elapsed;
-        timers[index].count ++;
-        timers[index].isStopped = true;
+        t->elapsed = CD_OS_TIMESPEC_DOUBLE(&(t->toc));
+        t->total += t->elapsed;
+        t->count ++;
+        t->isStopped = true;
 
         return false;
     }
 
     unsigned int getCount( std::string name ){
-        int index = getIndex( name );
-        if ( !timerExists( name, index ) ){ return 0.0;}
-        return timers[index].count;
+        single_timer * t = getTimer(name);
+        if ( !t ) {return 0;}
+
+        return t->count;
     }
 
     void wait( double time ){

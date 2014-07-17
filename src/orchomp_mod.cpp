@@ -147,7 +147,8 @@ bool mod::viewspheresVec(const chomp::MatX & q,
     if ( !sphere_collider ) { 
         std::cout << "There is no sphere collider, so viewing the" 
                   << " spheres is impossible" << std::endl;
-        return true;
+
+        timer.wait( time );
     }
     
     char text_buf[1024];
@@ -164,7 +165,8 @@ bool mod::viewspheresVec(const chomp::MatX & q,
         chomp::MatX dxdq, cgrad;
 
         if( sphere_collider ){ 
-            cost = sphere_collider->getCost( q, i, dxdq, cgrad );
+            //TODO fix the below, so that it shows stuff.
+            //cost = sphere_collider->getCost( q, i, dxdq, cgrad );
             if ( cost <= 0 ){ continue; }
         }
         
@@ -703,28 +705,34 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
 
     RAVELOG_INFO( "Chomp process time %fs\n", elapsedTime );
     
-    RAVELOG_INFO( "\tCollision process time:      %fs\n",
-                   sphere_collider->timer.getTotal( "collision"));
-    RAVELOG_INFO( "\tCollision FK process time:   %fs\n",
-                   sphere_collider->timer.getTotal( "FK"));
-    RAVELOG_INFO( "\tCollision Jacobian process time: %fs\n",
-                   sphere_collider->timer.getTotal( "jacobian"));
-    RAVELOG_INFO( "\tSDF Collision process time:  %fs\n",
-                   sphere_collider->timer.getTotal( "sdf collision"));
-    RAVELOG_INFO( "\tSelf Collision process time: %fs\n",
-                   sphere_collider->timer.getTotal( "self collision"));
+    if ( sphere_collider ){
+        RAVELOG_INFO( "\tCollision process time:      %fs\n",
+                       sphere_collider->timer.getTotal( "collision"));
+        RAVELOG_INFO( "\tCollision FK process time:   %fs\n",
+                       sphere_collider->timer.getTotal( "FK"));
+        RAVELOG_INFO( "\tCollision Jacobian process time: %fs\n",
+                       sphere_collider->timer.getTotal( "jacobian"));
+        RAVELOG_INFO( "\tSDF Collision process time:  %fs\n",
+                       sphere_collider->timer.getTotal( "sdf collision"));
+        RAVELOG_INFO( "\tSelf Collision process time: %fs\n",
+                       sphere_collider->timer.getTotal( "self collision"));
+        RAVELOG_INFO( "\tCollision Projection process time: %fs\n",
+                       sphere_collider->timer.getTotal( "projection"));
 
-    RAVELOG_INFO( "Chomp wall time    %fs\n", wallTime );
-    RAVELOG_INFO( "\tCollision wall time:      %fs\n",
-                   sphere_collider->timer.getWallTotal( "collision"));
-    RAVELOG_INFO( "\tCollision FK wall time:   %fs\n",
-                   sphere_collider->timer.getWallTotal( "FK"));
-    RAVELOG_INFO( "\tCollision Jacobian wall time: %fs\n",
-                   sphere_collider->timer.getWallTotal( "jacobian"));
-    RAVELOG_INFO( "\tSDF Collision wall time:  %fs\n",
-                   sphere_collider->timer.getWallTotal( "sdf collision"));
-    RAVELOG_INFO( "\tSelf Collision wall time: %fs\n",
-                   sphere_collider->timer.getWallTotal( "self collision"));
+        RAVELOG_INFO( "Chomp wall time    %fs\n", wallTime );
+        RAVELOG_INFO( "\tCollision wall time:      %fs\n",
+                       sphere_collider->timer.getWallTotal( "collision"));
+        RAVELOG_INFO( "\tCollision FK wall time:   %fs\n",
+                       sphere_collider->timer.getWallTotal( "FK"));
+        RAVELOG_INFO( "\tCollision Jacobian wall time: %fs\n",
+                       sphere_collider->timer.getWallTotal( "jacobian"));
+        RAVELOG_INFO( "\tSDF Collision wall time:  %fs\n",
+                       sphere_collider->timer.getWallTotal( "sdf collision"));
+        RAVELOG_INFO( "\tSelf Collision wall time: %fs\n",
+                       sphere_collider->timer.getWallTotal( "self collision"));
+        RAVELOG_INFO( "\tCollision Projection wall time: %fs\n",
+                       sphere_collider->timer.getWallTotal( "projection"));
+    }
    
     RAVELOG_INFO( "Done Iterating" ); 
     return true;
