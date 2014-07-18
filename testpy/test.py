@@ -4,10 +4,71 @@ import time
 import numpy
 
 
-local_commands = set([ 'environment' ])
+m = None
+e = None
+
+
+def readFileCommands( datafile=None, doCommandLineInputs=True ):
+    
+    if( datafile == None ):
+        datafile = getCommandLineFile()
+
+    data = datafile.read()
+    datafile.close()
+
+    lines = data.split('\n')
+    
+    current_command = []
+    for line in lines : 
+        
+        words = line.split()
+
+        #if the line is empty or the first letter of the first word is #,
+        #   do not get the line.
+        if len(line) == 0 or words[0][0] == '#':
+            continue
+        
+
+        current_command += words
+
+        if words[-1][-1] != "/":
+            command_string = " ".join(current_command)
+
+            print "Command:" , command_string
+            m.SendCommand( command_string )
+            current_command = []
+        else:
+            current_command[-1] = current_command[-1][:-1]
+
+   
+    while doCommandLineInputs:
+        s = raw_input( '-->' )
+        text = s.split()
+        if len( text ) < 1:
+            continue
+
+        if text[0] == 'q' or text[0] == 'quit' or text[0] == 'quit()' or text[0] == 'end':
+            break
+
+        if text[0] == "r" or text[0] == "read":
+
+            if len( text ) >= 2: 
+                f = open( text[1], 'r' )
+                m.SendCommand( "destroy" )
+
+                if f != None:
+                    readFileCommands( f, False )
+
+        try:
+            m.SendCommand( s )
+        except:
+            print "Not a valid command: " + s
 
 
 def main():
+    global m
+    global e
+
     e = r.Environment()
     m = r.RaveCreateModule( e, 'orchomp' )
     e.SetViewer( 'qtcoin' )
@@ -28,8 +89,11 @@ def main():
         for body in e.GetBodies():
             body.SetTransform(numpy.dot(Tz,body.GetTransform()))
 
+    readFileCommands()
 
-    time.sleep(3.0) #sleep for a while to allow the viewer to set up
+
+def getCommandLineFile():
+
     name = ''
 
     if len( sys.argv ) > 1:
@@ -38,34 +102,8 @@ def main():
         name = 'test_default.txt'
         
     f = open( name, 'r' )
+    return f
 
-    data = f.read()
-    lines = data.split('\n')
 
-    current_command = ''
-    for line in lines : 
-        
-        '''for comments'''
-        if len(line) == 0 or line[0] == '#':
-            continue
-
-        current_command += ' ' + line
-
-        if line[-1] != "/":
-            print "Command:" , current_command
-            m.SendCommand( current_command )
-            print "after command"
-            current_command = ""
-        else:
-            current_command = current_command[:-1] + " "
-
-   
-    while True:
-        s = raw_input( '-->' )
-        if s == 'q' or s == 'quit' or s == 'quit()' or s == 'end':
-            break
-        m.SendCommand( s )
-
-    del e
 
 main()

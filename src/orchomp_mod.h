@@ -126,7 +126,7 @@ public:
 
     //a basic constructor to initialize values
     ChompInfo() :
-        alpha(0.1), obstol(0.0001), t_total(1.0), gamma(0.1),
+        alpha(0.1), obstol(0.00000000000001), t_total(1.0), gamma(0.1),
         epsilon( 0.1 ), epsilon_self( 0.01 ), obs_factor( 0.7 ),
         obs_factor_self( 0.3 ), jointPadding( 0.001 ),
         timeout_seconds( -1.0), hmc_lambda( 0.02 ),
@@ -321,6 +321,7 @@ public:
     //get a state matrix, and turn it into an openrave state vector
     void getStateAsVector( const chomp::MatX & state,
                 std::vector< OpenRAVE::dReal > & vec  );
+    
     //get a random state that is within the robot's joint limits
     void getRandomState( chomp::MatX & vec );
 

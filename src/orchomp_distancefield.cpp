@@ -287,7 +287,21 @@ OpenRAVE::dReal DistanceField::getDist( const OpenRAVE::Vector & pos,
     return grid.sample( trans, gradient );
 }
 
+OpenRAVE::dReal DistanceField::getDist( const OpenRAVE::Vector & pos )
+{
 
+    const OpenRAVE::Vector grid_point = pose_grid_world * pos;
+
+    //check the bounds of the box, and if the point is not within the
+    //  bounds, return huge_val;
+    vec3 trans( grid_point[0], grid_point[1], grid_point[2] );
+
+    if( !grid.isInside( trans )){
+        return HUGE_VAL;
+    }
+
+    return grid.sample(trans);
+}
 
 
 //fills the reachable area with NOCOLLISION_EXPLORED

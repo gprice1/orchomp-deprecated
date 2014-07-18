@@ -44,10 +44,6 @@ inline void mod::getRandomState( chomp::MatX & state ){
          state(i) = lowerJointLimits[i] 
                     + (upperJointLimits[i]-lowerJointLimits[i])
                     * rand_val;
-         debugStream << "Got random joint value - index: "
-                     << i << "\tLower: " << lowerJointLimits[i]
-                     << "\tFound: " << state(i) 
-                     << "\tUpper: " << upperJointLimits[i] << std::endl;
     }
 }
          
@@ -269,10 +265,10 @@ void mod::parseCreate(std::ostream & sout, std::istream& sinput)
         else if (cmd == "obs_factor_self"){sinput >> info.obs_factor_self;}
         else if (cmd == "doobserve"){ info.doObserve = true;  }
         else if (cmd == "noobserve"){ info.doObserve = false;  }
-        else if ( cmd == "nofactory"){ info.noFactory = true;  }
-        else if ( cmd == "nocollider"){ info.noCollider = true;  }
-        else if ( cmd == "noselfcollision"){ info.noSelfCollision = true;  }
-        else if ( cmd == "noenvironmentalcollision"){
+        else if (cmd == "nofactory"){ info.noFactory = true;  }
+        else if (cmd == "nocollider"){ info.noCollider = true;  }
+        else if (cmd == "noselfcollision"){ info.noSelfCollision = true;  }
+        else if (cmd == "noenvironmentalcollision"){
             info.noEnvironmentalCollision = true; 
         }   
         // These are unimplemented:
@@ -352,9 +348,11 @@ void mod::parseIterate(std::ostream & sout, std::istream& sinput)
             sinput >> info.min_global_iter;
         }else if (cmd =="min_local_iter") {
             sinput >> info.min_local_iter;
-        }else if (cmd =="max_global_iter" ||
-                  cmd =="n_iter" ) {
+        }else if (cmd =="max_global_iter") {
             sinput >> info.max_global_iter;
+        }else if (cmd =="n_iter" ) {
+            sinput >> info.max_global_iter;
+            info.max_local_iter = info.max_global_iter;
         }else if (cmd =="max_local_iter") {
             sinput >> info.max_local_iter;
         }else if (cmd == "timeout" ||

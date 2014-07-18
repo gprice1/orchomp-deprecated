@@ -123,17 +123,32 @@ bool mod::playback(std::ostream& sout, std::istream& sinput)
     return true;
 }
 
+//color goes from back to blue to yellow to red as cost increases.
 void getColor( OpenRAVE::Vector & color, double cost, double eps ){
+    
     if ( cost <= 0.5*eps ){
         float val = cost/(0.5*eps);
-        color = OpenRAVE::Vector( 1,val,0 );
+        color = OpenRAVE::Vector( 0,0, val );
     }
     else if ( cost <= eps){
         float val = cost/(0.5*eps) - 1.0;
-        color = OpenRAVE::Vector( 1,1,val);
+        color = OpenRAVE::Vector( 1,val,1-val);
     }else {
-        color = OpenRAVE::Vector( 1,1,1 );
+        float val = std::min( cost/eps - 1.0, 1.0 );
+        color = OpenRAVE::Vector( val,1-val,0 );
     }
+}
+
+
+//color goes from back to blue to yellow to red as cost increases.
+void getDualColor( OpenRAVE::Vector & color,
+                   double cost1, double eps1, 
+                   double cost2, double eps2 ){
+    
+    color[0] = std::min( 1.0, cost1/eps1);
+    color[1] = 0;
+    color[2] = std::min( 1.0, cost2/eps2);
+
 }
 
 //view the collision geometry. .
@@ -142,34 +157,35 @@ bool mod::viewspheresVec(const chomp::MatX & q,
                         double time)
 {
     
-    robot->SetActiveDOFValues( vec, true );
-
+    
     if ( !sphere_collider ) { 
         std::cout << "There is no sphere collider, so viewing the" 
                   << " spheres is impossible" << std::endl;
 
+        robot->SetActiveDOFValues( vec, true );
         timer.wait( time );
+        return true;
     }
     
-    char text_buf[1024];
-    
-    const size_t n_active = active_spheres.size();
+    sphere_collider->setSpherePositions( q );
 
+    char text_buf[1024];
+    const size_t n_active = active_spheres.size();
     std::vector< OpenRAVE::KinBodyPtr > bodies;
     
 
     for ( size_t i=0; i < n_active; i ++ )
     {
 
-        double cost( 0 );
+        double sdf_cost( 0 ), self_cost(0.0);
         chomp::MatX dxdq, cgrad;
+        Eigen::Vector3d gradient;
 
-        if( sphere_collider ){ 
-            //TODO fix the below, so that it shows stuff.
-            //cost = sphere_collider->getCost( q, i, dxdq, cgrad );
-            if ( cost <= 0 ){ continue; }
-        }
+        sdf_cost = sphere_collider->getSDFCollisions( i, gradient);
+        self_cost = sphere_collider->getInactiveCost( i, gradient);
         
+        if (sdf_cost + self_cost == 0 ){ continue; }
+
         //extract the current sphere
         //  if i is less than n_active, get a sphere from active_spheres,
         //  else, get a sphere from inactive_spheres
@@ -184,14 +200,14 @@ bool mod::viewspheresVec(const chomp::MatX & q,
         //set the dimensions and transform of the sphere.
         std::vector< OpenRAVE::Vector > svec;
 
-        //get the position of the sphere in the world 
-        OpenRAVE::Transform t =  current_sphere.body->GetLink(
-                                 current_sphere.linkname)->GetTransform();
-        OpenRAVE::Vector position = t * current_sphere.position;
-        
+        OpenRAVE::Vector position = sphere_collider->sphere_positions[ i ];
+
         //set the radius of the sphere
+        double size_value = sdf_cost/sphere_collider->epsilon + 
+                            self_cost/sphere_collider->epsilon;
+
         position.w = current_sphere.radius *
-                     ( 1 + std::min(cost/(sphere_collider->epsilon ), 1.0)); 
+                     ( 1 + std::max( 0.0, std::min(size_value, 2.0))); 
 
         //give the kinbody the sphere parameters.
         svec.push_back( position );
@@ -201,9 +217,13 @@ bool mod::viewspheresVec(const chomp::MatX & q,
         environment->Add( sbody );
 
         OpenRAVE::Vector color;  
-        getColor( color, cost, sphere_collider->epsilon );
+        getDualColor( color, sdf_cost, sphere_collider->epsilon,
+                             self_cost, sphere_collider->epsilon_self );
         sbody->GetLinks()[0]->GetGeometries()[0]->SetAmbientColor( color );
         sbody->GetLinks()[0]->GetGeometries()[0]->SetDiffuseColor( color );
+        sbody->GetLinks()[0]->GetGeometries()[0]->SetTransparency( 0.5 );
+
+
     }
     
     timer.wait( time );
@@ -232,7 +252,7 @@ bool mod::viewspheres(std::ostream& sout, std::istream& sinput)
     
     const size_t n_active = active_spheres.size();
     const size_t n_inactive = inactive_spheres.size();
-
+    
     for ( size_t i=0; i < n_active + n_inactive ; i ++ )
     {
         //extract the current sphere
@@ -666,16 +686,16 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     
     printChompInfo();
 
+    
+    sphere_collider->benchmark(); return false;
+
     //give chomp a collision helper to 
     //deal with collision and gradients.
-
-    std::cout << "Making collider" << std::endl;
     if (sphere_collider){
         sphere_collider->gamma = info.gamma;
         chomper->ghelper = sphere_collider;
     }
 
-    std::cout << "Done Making collider" << std::endl;
     
     if ( info.doObserve ){
         observer = new chomp::DebugChompObserver();
@@ -694,6 +714,7 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
         robot = environment->GetRobot( robot_name.c_str() );
     }
     
+
     std::cout << "Starting Chomp" << std::endl;
     
     timer.start( "CHOMP run" );

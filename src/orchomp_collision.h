@@ -69,15 +69,14 @@ public:
             epsilon( 0.1 ), obs_factor(0.7), epsilon_self( 0.01 ), 
             obs_factor_self( 0.3)
     {
-        //timer.print = true;
     }
+
     
     //The main call for this class. Find the workspace collision gradient for the 
     //  current trajectory.
     virtual double addToGradient(const chomp::Chomp& c, chomp::MatX& g);
 
 
-private:
     //these are mostly helper functions for addToGradient. 
 
     //get the cost of the active sphere on active sphere collisions. 
@@ -98,17 +97,19 @@ private:
     //calculate the cost and direction for a collision between two spheres.
     OpenRAVE::dReal sphereOnSphereCollision( size_t index1, size_t index2,
                                              Eigen::Vector3d & direction );
-
+    bool sphereOnSphereCollision( size_t index1, size_t index2);
 
     //get collisions with the environment from a list of signed distance
     //  fields.
     OpenRAVE::dReal getSDFCollisions( size_t body_index,
                                       Eigen::Vector3d & gradient,
                                       bool viewDists=false);
+    bool getSDFCollisions( size_t body_index );
+
     //gets the jacobian of the sphere.
     std::vector< OpenRAVE::dReal > const& 
             getJacobian( size_t sphere_index); 
-    
+  
     //for a given configuration q, set the sphere_positions vector, to the
     //  positions of the spheres for the configuration.
     void setSpherePositions( const chomp::MatX & q );
@@ -127,6 +128,12 @@ private:
 
     void visualizeSDFSlice( size_t sdf_index, size_t axis,
                             size_t slice_index, double time);
+  
+  public: 
+    bool isCollidedSDF( bool checkAll=true);
+    bool isCollidedSelf( bool checkAll=true);
+
+    void benchmark();
 
 };
 
