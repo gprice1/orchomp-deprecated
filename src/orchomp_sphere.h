@@ -12,6 +12,8 @@ class Sphere
   public:
     // The radius of the sphere
     double radius;
+    
+    bool inactive;
 
     //a pointer to the kinBody that
     //the sphere comes off of.
@@ -33,7 +35,7 @@ class Sphere
     //  xyz vector.
     OpenRAVE::Vector position;
 
-    Sphere() : link( NULL ), cache( NULL), linkindex(-1){}
+    Sphere() : inactive(false), link( NULL ), cache( NULL), linkindex(-1){}
 };
 
 }//namespace orchomp

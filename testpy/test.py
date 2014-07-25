@@ -61,9 +61,8 @@ def readFileCommands( datafile=None, doCommandLineInputs=True ):
 
         try:
             m.SendCommand( s )
-        except:
-            print "Not a valid command: " + s
-
+        except r.openrave_exception, e:
+            print e
 
 def main():
     global m
@@ -73,7 +72,7 @@ def main():
     m = r.RaveCreateModule( e, 'orchomp' )
     e.SetViewer( 'qtcoin' )
     e.Load( 'lab1.env.xml' );
-
+    
     # set the manipulator to leftarm
     #ikmodel = databases.inversekinematics.InverseKinematicsModel(
     #            robot,iktype=IkParameterization.Type.Transform6D)
@@ -83,7 +82,8 @@ def main():
     Tz = r.matrixFromAxisAngle([0,0,numpy.pi/2])
     Tz[0,3] = 0.4  
     Tz[1,3] = 1.6
-    
+    Tz[2,3] = -0.01
+
     print Tz
     with e:
         for body in e.GetBodies():

@@ -41,6 +41,8 @@ class kdata : public OpenRAVE::XMLReadable
 {
 public:
    std::vector<Sphere> spheres;
+   std::vector< std::pair< std::string, std::string> > ignorables;
+
    kdata();
    ~kdata();
 };
@@ -52,6 +54,7 @@ class kdata_parser : public OpenRAVE::BaseXMLReader
 public:
    boost::shared_ptr<kdata> d;
    bool inside_spheres;
+   bool inside_ignorables;
 
    kdata_parser(boost::shared_ptr<kdata> passed_d, const OpenRAVE::AttributesList& atts);
    virtual OpenRAVE::XMLReadablePtr GetReadable();

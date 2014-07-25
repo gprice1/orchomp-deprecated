@@ -28,7 +28,6 @@ set( ORCHOMPLIBS
     src/orchomp_distancefield.cpp
     src/orchomp_collision.cpp
     src/orchomp_constraint.cpp
-    src/orchomp_observer.cpp
 
     src/utils/os.c
     src/utils/util_shparse.c

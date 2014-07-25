@@ -41,6 +41,7 @@
 #include "orchomp_distancefield.h"
 #include "orchomp_sphere.h" 
 
+
 //timing utils
 #include "utils/timer.h"
 
@@ -163,7 +164,7 @@ public:
     ORConstraintFactory * factory;
     SphereCollisionHelper * sphere_collider;
     chomp::ChompObserver * observer;
-
+    
     //an hmc object
     chomp::HMC * hmc;
  
@@ -176,15 +177,13 @@ public:
     std::string robot_name;            // the name of the robot
     std::vector< int > active_indices; // the active indices of the robot
     size_t n_dof;                      // the degree of freedom of the bot.
- 
+    
     //holds the active manipulator of the robot. this is used for
     //  TSR constraints.
     OpenRAVE::RobotBase::ManipulatorPtr active_manip;
 
     //a vector containing the collision geometry
     std::vector< Sphere > active_spheres, inactive_spheres;
-    
-
 
     //the upper and lower limits for the joints.
     std::vector< OpenRAVE::dReal > upperJointLimits, lowerJointLimits,
@@ -199,8 +198,6 @@ public:
     //this is a timer for timing things.
     Timer timer;
 
-
-    
     //a pointer to an openrave trajectory, a call to gettraj, will fill
     //  this structure with the current chomp trajectory.
     OpenRAVE::TrajectoryBasePtr trajectory_ptr;
@@ -260,6 +257,8 @@ public:
                         const std::vector< OpenRAVE::dReal > & vec,
                         double time);
     
+    bool benchmark(std::ostream & sout, std::istream& sinput);
+    
     //print out the parameters of the current run of chomp.
     void printChompInfo();
 
@@ -304,6 +303,7 @@ public:
     void parsePoint( std::istream & sinput, chomp::MatX & point);
     void parseExecute( std::ostream & sout , std::istream & sinput );
     void parseRobot( std::string & name );
+    void parseError( std::istream& sinput );
     ORTSRConstraint * parseTSR( std::istream & sinput );
 
     
@@ -357,7 +357,6 @@ public:
 
     //Returns true if two joints are adjacent
     bool areAdjacent( int first, int second ) const ;
-    
 
 };
 

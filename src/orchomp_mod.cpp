@@ -27,7 +27,6 @@
 #include "orchomp_constraint.h"
 #include "orchomp_kdata.h"
 #include "orchomp_collision.h"
-#include "orchomp_observer.h"
 
 #include "chomp-multigrid/chomp/HMC.h"
 
@@ -86,13 +85,64 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
             "remove a tsr constraint");
        RegisterCommand("viewtsr",
             boost::bind(&mod::viewtsr,this,_1,_2),
-            "playback a trajectory on a robot");
+            "view a tsr constraint");
+       RegisterCommand("benchmark",
+            boost::bind(&mod::benchmark,this,_1,_2),
+            "benchmark the collision detection system");
 }
 
 /* ======================================================================== *
  * module commands
  */
 
+bool mod::benchmark(std::ostream& sout, std::istream& sinput)
+{
+    if ( !sphere_collider ){
+        sphere_collider = new SphereCollisionHelper( n_dof, this );
+    }
+    
+    bool lock_env = true;
+    bool print = false;
+    bool check_all = false;
+    int num_trials = 100;
+    double pause_time = 0.0;
+    
+    std::string cmd;
+    /* parse command line arguments */
+    while (!sinput.eof () ){
+        sinput >> cmd;
+      
+        if (!sinput){ break; }
+        if (cmd == "robot")
+        {
+            sinput >> robot_name;
+            parseRobot( robot_name );
+        }else if ( cmd == "pause" ){
+            sinput >> pause_time;
+            lock_env = false;
+        } else if ( cmd == "n" || cmd == "numtrials" ){
+            sinput >> num_trials;
+        } else if ( cmd == "checkall" ){
+            check_all = true;
+        } else if ( cmd == "print" ){
+            print = true;
+        }
+
+
+        //error case
+        else{ parseError( sinput ); }
+    }
+
+
+    RAVELOG_INFO( "Benchmarking for %d trials\n", num_trials);
+    if( lock_env ) OpenRAVE::EnvironmentMutex::scoped_lock lock( 
+                                        environment->GetMutex() );
+
+    sphere_collider->benchmark( num_trials, check_all, pause_time, print);
+
+    return true;
+
+}
 
 bool mod::playback(std::ostream& sout, std::istream& sinput)
 {
@@ -170,11 +220,10 @@ bool mod::viewspheresVec(const chomp::MatX & q,
     sphere_collider->setSpherePositions( q );
 
     char text_buf[1024];
-    const size_t n_active = active_spheres.size();
     std::vector< OpenRAVE::KinBodyPtr > bodies;
     
 
-    for ( size_t i=0; i < n_active; i ++ )
+    for ( size_t i=0; i < sphere_collider->nbodies; i ++ )
     {
 
         double sdf_cost( 0 ), self_cost(0.0);
@@ -187,14 +236,13 @@ bool mod::viewspheresVec(const chomp::MatX & q,
         if (sdf_cost + self_cost == 0 ){ continue; }
 
         //extract the current sphere
-        //  if i is less than n_active, get a sphere from active_spheres,
-        //  else, get a sphere from inactive_spheres
-        const Sphere & current_sphere = active_spheres[i] ;
+
+        const Sphere & current_sphere = sphere_collider->spheres[i] ;
 
         //make a kinbody sphere object to correspond to this sphere.
         OpenRAVE::KinBodyPtr sbody = 
                 OpenRAVE::RaveCreateKinBody( environment );
-        sprintf( text_buf, "orcdchomp_sphere_%d", int(i));
+        sprintf( text_buf, "orchomp_sphere_%d", int(i));
         sbody->SetName(text_buf);
         
         //set the dimensions and transform of the sphere.
@@ -238,36 +286,30 @@ bool mod::viewspheresVec(const chomp::MatX & q,
 //view the collision geometry.
 bool mod::viewspheres(std::ostream& sout, std::istream& sinput)
 {
-
     
-    OpenRAVE::EnvironmentMutex::scoped_lock lockenv(environment->GetMutex());
+    RAVELOG_INFO( "Viewing spheres\n");
+    
     parseViewSpheres( sout,  sinput);
     
     //if there are no spheres, get them
-    if ( active_spheres.size() + inactive_spheres.size() == 0) {
-        getSpheres() ; 
+    if ( sphere_collider == NULL ) {
+        sphere_collider = new SphereCollisionHelper(n_dof, this); 
     }
      
     char text_buf[1024];
     
-    const size_t n_active = active_spheres.size();
-    const size_t n_inactive = inactive_spheres.size();
-    
-    for ( size_t i=0; i < n_active + n_inactive ; i ++ )
+
+    for ( size_t i=0; i < sphere_collider->spheres.size() ; i ++ )
     {
         //extract the current sphere
-        //  if i is less than n_active, get a sphere from active_spheres,
-        //  else, get a sphere from inactive_spheres
-        const Sphere & sphere = (i < n_active ?
-                                 active_spheres[i] :
-                                 inactive_spheres[i-n_active]);
+        const Sphere & sphere = sphere_collider->spheres[i];
 
         //make a kinbody sphere object to correspond to this sphere.
         OpenRAVE::KinBodyPtr sbody = 
                 OpenRAVE::RaveCreateKinBody( environment );
-        ;
-        sbody->SetName(text_buf);
         
+        sprintf( text_buf, "orchomp_sphere_%d", int(i));
+        sbody->SetName(text_buf);
 
         //set the dimensions and transform of the sphere.
         std::vector< OpenRAVE::Vector > svec;
@@ -282,10 +324,14 @@ bool mod::viewspheres(std::ostream& sout, std::istream& sinput)
 
         //give the kinbody the sphere parameters.
         svec.push_back(v);
+
+
         sbody->InitFromSpheres(svec, true);
 
         environment->Add( sbody );
+
     }
+    
     return true;
 }
 
@@ -567,8 +613,6 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
     OpenRAVE::EnvironmentMutex::scoped_lock lockenv(
               environment->GetMutex() );
     
-    RAVELOG_INFO( "Creating" );
-
     parseCreate( sout,  sinput);
     
 
@@ -580,7 +624,8 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
     paddedLowerJointLimits.resize( lowerJointLimits.size() );
 
     for ( size_t i = 0; i < upperJointLimits.size(); i ++ ){
-        OpenRAVE::dReal interval = upperJointLimits[i] - lowerJointLimits[i];
+        OpenRAVE::dReal interval = upperJointLimits[i] 
+                                   - lowerJointLimits[i];
         interval *= info.jointPadding;
 
         //fill the padded joint limits
@@ -588,34 +633,32 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
         paddedLowerJointLimits[i] = lowerJointLimits[i] + interval;
     }
     
-    clampToLimits( q0 );
-    clampToLimits( q1 );
+    if ( robot.get() ){
+        clampToLimits( q0 );
+        clampToLimits( q1 );
 
-    assert( isWithinLimits( q0 ) );
-    assert( isWithinLimits( q1 ) );
-    
-    //create the sphere collider to actually 
-    //  use the sphere information, and pass in its parameters.
-    if ( !info.noCollider && !sphere_collider ){
-        
-        //Setup the collision geometry
-        getSpheres();
+        assert( isWithinLimits( q0 ) );
+        assert( isWithinLimits( q1 ) );
 
-        //create a collider object to use the geometry
-        sphere_collider = new SphereCollisionHelper(
-                          n_dof, 3, active_spheres.size(), this);
-        sphere_collider->epsilon = info.epsilon;
-        sphere_collider->epsilon_self = info.epsilon_self;
-        sphere_collider->obs_factor = info.obs_factor;
-        sphere_collider->obs_factor_self = info.obs_factor_self;
+        //create the sphere collider to actually 
+        //  use the sphere information, and pass in its parameters.
+        if ( !info.noCollider && !sphere_collider ){
+            
+            //create a collider object to use the geometry
+            sphere_collider = new SphereCollisionHelper(
+                              n_dof, this);
+            sphere_collider->epsilon = info.epsilon;
+            sphere_collider->epsilon_self = info.epsilon_self;
+            sphere_collider->obs_factor = info.obs_factor;
+            sphere_collider->obs_factor_self = info.obs_factor_self;
+        }
+
+        if ( !info.noFactory ){
+            if (factory ){ delete factory; }
+            factory = new ORConstraintFactory( this );
+        }
     }
 
-    if ( !info.noFactory ){
-        if (factory ){ delete factory; }
-        factory = new ORConstraintFactory( this );
-    }
-
-    RAVELOG_INFO( "Done Creating" );
     
     return true;
 }
@@ -687,8 +730,6 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     printChompInfo();
 
     
-    sphere_collider->benchmark(); return false;
-
     //give chomp a collision helper to 
     //deal with collision and gradients.
     if (sphere_collider){
@@ -966,106 +1007,6 @@ inline void mod::createInitialTrajectory( chomp::MatX & trajectory )
     }
 }
 
-
-//get the spheres for collision detection
-void mod::getSpheres()
-{
-    
-    active_spheres.clear();
-    inactive_spheres.clear();
-
-    //a vector holding all of the pertinent bodies in the scene
-    std::vector<OpenRAVE::KinBodyPtr> bodies;
-
-    /* consider the robot kinbody, as well as all grabbed bodies */
-    robot->GetGrabbed(bodies);
-    bodies.push_back(environment->GetRobot( robot->GetName() ));
-    
-    //iterate over all of the bodies.
-    for (size_t i=0; i < bodies.size(); i++)
-    {
-        OpenRAVE::KinBodyPtr body = bodies[i];
-
-        //get the spheres of the body by creating an xml reader to
-        //  extract the spheres from the xml files of the objects
-        boost::shared_ptr<orchomp::kdata> data_reader = 
-            boost::dynamic_pointer_cast<orchomp::kdata>
-                (body->GetReadableInterface("orchomp"));
-         
-        //bail if there is no orcdchomp data.
-        if (data_reader.get() == NULL ) {
-            std::string error = "Kinbody called "
-                              + body->GetName() 
-                              + " does not have a <orchomp> tag defined.";
-            
-            throw OpenRAVE::openrave_exception(error);
-        }
-        
-        
-        for (size_t j = 0; j < data_reader->spheres.size(); j++ )
-        {
-            
-            Sphere & sphere = data_reader->spheres[j];
-            
-            sphere.body = body.get();
-            /* what robot link is this sphere attached to? */
-            if (body.get() == robot.get()){
-                
-                //TODO THIS IS AN OUTRAGEOUS HACK
-                //  PLEASE make it not necessary
-                if ( sphere.linkname == "/right/wam0" ){
-                    sphere.linkname = "/right/wam2";
-                }else if ( sphere.linkname == "/left/wam0" ){
-                    sphere.linkname = "/left/wam2";
-                }
-
-                sphere.link = robot->GetLink(sphere.linkname).get();
-            }
-            //the sphere is attached to a grabbed kinbody
-            else{
-                sphere.link = robot->IsGrabbing(body).get();
-            }
-
-            //if the link does not exist, throw an exception
-            if(!sphere.link){ 
-               throw OPENRAVE_EXCEPTION_FORMAT(
-                     "link %s in <orcdchomp> does not exist.",
-                     sphere.linkname, OpenRAVE::ORE_Failed);
-            }
-            
-            sphere.linkindex = sphere.link->GetIndex();
-            
-            //if the body is not the robot, then get the transform
-            //TODO find out if this is necessary or useful??
-            if ( body.get() != robot.get() )
-            {
-                OpenRAVE::Transform T_w_klink = 
-                    body->GetLink(sphere.linkname)->GetTransform();
-                OpenRAVE::Transform T_w_rlink = sphere.link->GetTransform();
-                OpenRAVE::Vector v = T_w_rlink.inverse()
-                                     * T_w_klink 
-                                     * sphere.position;
-                sphere.position[0] = v.x;
-                sphere.position[1] = v.y;
-                sphere.position[2] = v.z;
-            }
-             
-            /* is this link affected by the robot's active dofs? */
-            for (size_t k = 0; k < n_dof; k++){
-                if ( robot->DoesAffect( active_indices[k],
-                                        sphere.linkindex    )){
-                    active_spheres.push_back( sphere );
-                    break;
-                }
-                //if the sphere is not active, add it to the inactive
-                //  vector
-                else if ( k == n_dof - 1 ) {
-                    inactive_spheres.push_back( sphere);
-                }
-            }
-        }
-    }    
-}
 
 
 } /* namespace orchomp */

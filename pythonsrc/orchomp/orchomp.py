@@ -31,9 +31,9 @@ def viewspheres(mod, robot=None, releasegil=False):
    cmd = 'viewspheres'
    if robot is not None:
       if hasattr(robot,'GetName'):
-         cmd += ' robot %s' % shquot(robot.GetName())
+         cmd += ' robot %s' % robot.GetName()
       else:
-         cmd += ' robot %s' % shquot(robot)
+         cmd += ' robot %s' % robot
    print 'cmd:', cmd
    return mod.SendCommand(cmd, releasegil)
 
@@ -118,7 +118,7 @@ def create(mod, robot=None, adofgoal=None, lambda_=None,
    if no_report_cost is not None and no_report_cost:
       cmd += ' no_report_cost'
    if dat_filename is not None:
-      cmd += ' dat_filename %s' % shquot(dat_filename)
+      cmd += ' dat_filename %s' % dat_filename
    print 'cmd:', cmd
    retval = mod.SendCommand(cmd, releasegil)
 

@@ -145,7 +145,6 @@ void DistanceField::createField( OpenRAVE::EnvironmentBasePtr & env,
 
         if ( !isCorrectSize() ){
 
-
             createFieldFromScratch( filename );
         }
     }
@@ -223,15 +222,19 @@ void DistanceField::createFieldFromScratch(const std::string & filename){
     else if ( fill == OCTREEFILL ){ startOctreeFill(); }
     else if ( fill == KDTREEFILL ){ startKdtreeFill(); }
     
+    RAVELOG_INFO( "Flood filling the occupancy grid\n");
     //floodfill the object to make sure that hollow objects do not have
     //  holes.
     floodFill( 0, grid.nx(), 0, grid.ny(), 0, grid.nz() );
 
+    RAVELOG_INFO( "Done flood filling, computing distance field\n");
     //delete the cube , because we don't need this anymore
     environment->Remove( unitCube );
     
     grid.computeDistsFromBinary();
 
+    RAVELOG_INFO( "Done computing distance field\n");
+    
     if ( filename != "NULL" ){
         RAVELOG_INFO( "Saving distance field as '%s'\n", filename.c_str());
         grid.save( filename.c_str() );
@@ -316,7 +319,7 @@ void DistanceField::floodFill(int x1, int x2,
 
     assert( grid(x1,y1,z1) == NOCOLLISION );
     grid(x1,y1,z1) = NOCOLLISION_EXPLORED;
-
+    
     while( !stack.empty() ){
         
         const vec3u top = stack.top();
@@ -324,20 +327,27 @@ void DistanceField::floodFill(int x1, int x2,
 
         //for each of the three dimesions, try to grow out the viable area.
         for( int i = 0; i < 3; i ++ ){
-            
             vec3u current = top;
+            
             current[i] += 1;
             if ( current[i] < upper[i] && grid( current ) == NOCOLLISION ){
                 grid( current ) = NOCOLLISION_EXPLORED;
                 stack.push( current );
             }
             
-            //since we already added 1, we need to minus 2 to get to
-            //  top[i] - 1.
-            current[i] -=2;
-            if ( current[i] >= lower[i] && grid( current ) == NOCOLLISION ){
-                grid( current ) = NOCOLLISION_EXPLORED;
-                stack.push( current );
+            //only minus 2 from current if top[i] is greater than 0,
+            //  this is a safeguard against buffer overflow with unsigned
+            //  integers.
+            if ( top[i] > 0 ){
+                //since we already added 1, we need to minus 2 to get to
+                //  top[i] - 1.
+                current[i] -=2;
+                if ( current[i] >= lower[i] &&
+                      grid( current ) == NOCOLLISION )
+                {
+                    grid( current ) = NOCOLLISION_EXPLORED;
+                    stack.push( current );
+                }
             }
 
         }

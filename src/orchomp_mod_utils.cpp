@@ -18,6 +18,7 @@ bool mod::isWithinPaddedLimits( const chomp::MatX & mat ) const{
     }
     return true;
 }
+
 bool mod::isWithinLimits( const chomp::MatX & mat ) const{
     assert( upperJointLimits.size() > 0 );
     assert( lowerJointLimits.size() > 0 );
@@ -44,6 +45,7 @@ void mod::coutTrajectory() const
         std::cout << "\n";
     }
 }
+
 void mod::isTrajectoryWithinLimits() const {
     for( int i = 0; i < chomper->xi.rows(); i ++ ){
         chomp::MatX test = chomper->xi.row(i);
@@ -119,7 +121,6 @@ void mod::setActiveDOFValues( const chomp::MatX & qt ){
     robot->SetActiveDOFValues( vec, false );
 }
 
-//TODO : Make this a real function
 bool mod::areAdjacent( int first, int second ) const {
 
     //second must be larger than first, so if that is not the case, swap
@@ -138,6 +139,8 @@ bool mod::areAdjacent( int first, int second ) const {
     }
     return true;
 }
+
+
 
 OpenRAVE::KinBodyPtr mod::createBox( const OpenRAVE::Vector & pos,
                                 const OpenRAVE::Vector & extents,

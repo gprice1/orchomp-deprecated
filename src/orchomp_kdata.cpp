@@ -41,6 +41,7 @@ kdata_parser::kdata_parser(boost::shared_ptr<kdata> passed_d, const OpenRAVE::At
    if(!this->d) this->d.reset(new kdata());
    /* get ready */
    this->inside_spheres = false;
+   this->inside_ignorables = false;
 }
 
 OpenRAVE::XMLReadablePtr kdata_parser::GetReadable()
@@ -52,19 +53,75 @@ OpenRAVE::BaseXMLReader::ProcessElement
 kdata_parser::startElement(const std::string& name, 
                            const OpenRAVE::AttributesList& atts)
 {
-   if (name == "spheres")
+
+   if (name == "ignorables"){
+      if (this->inside_spheres) {
+          RAVELOG_ERROR("you can't have <ignorables> inside <spheres>!\n");
+      }
+      if (this->inside_ignorables) {
+          RAVELOG_ERROR("you can't have <ignorables> inside <ignorables>!\n");
+      }
+
+      this->inside_ignorables = true;
+      return PE_Support;
+   }
+
+   else if (name == "ignore"){
+      if (!this->inside_ignorables) {
+          RAVELOG_ERROR("you can't have <ignore> "
+                        "not inside <ignorables>!\n");
+          return PE_Pass;
+      }
+      if (this->inside_spheres) {
+          RAVELOG_ERROR("you can't have <ignore> "
+                        "inside <spheres>!\n");
+          return PE_Pass;
+      }
+      
+      //increase the size of the vector,
+      //    add an ignorable pair to the end.
+      d->ignorables.resize( d->ignorables.size() + 1 );
+
+      //iterate through the arguments, and assign things to the to
+      for(OpenRAVE::AttributesList::const_iterator itatt = atts.begin();
+          itatt != atts.end();
+          ++itatt)
+      {
+         if (itatt->first=="link1"){
+            d->ignorables.back().first = itatt->second;
+         }else if (itatt->first=="link2"){
+            d->ignorables.back().second = itatt->second;
+         }else{
+            RAVELOG_ERROR("unknown attribute %s=%s!\n",
+                            itatt->first.c_str(),itatt->second.c_str());
+         }
+      }
+
+      return PE_Support;
+   }
+
+
+   else if (name == "spheres")
    {
       if (this->inside_spheres) {
           RAVELOG_ERROR("you can't have <spheres> inside <spheres>!\n");
       }
+      if (this->inside_ignorables) {
+          RAVELOG_ERROR("you can't have <spheres> inside <ignorables>!\n");
+      }
+
       this->inside_spheres = true;
       return PE_Support;
    }
-   if (name == "sphere")
+   else if (name == "sphere")
    {
 
       if (!this->inside_spheres) {
           RAVELOG_ERROR("you can't have <sphere> not inside <spheres>!\n");
+          return PE_Pass;
+      }
+      if (this->inside_ignorables) {
+          RAVELOG_ERROR("you can't have <sphere> inside <ignorables>!\n");
           return PE_Pass;
       }
       
@@ -86,15 +143,19 @@ kdata_parser::startElement(const std::string& name,
             sscanf(itatt->second.c_str(), "%lf %lf %lf",    
                    &pose[0], &pose[1], &pose[2] );
             current_sphere.position = OpenRAVE::Vector( pose );
+         }else if (itatt->first =="inactive"){
+             if ( itatt->second =="true" ){
+                current_sphere.inactive = true;
+             }
          }else{
             RAVELOG_ERROR("unknown attribute %s=%s!\n",
                             itatt->first.c_str(),itatt->second.c_str());
          }
-
       }
 
       return PE_Support;
    }
+
    return PE_Pass;
 }
 
@@ -106,15 +167,49 @@ void kdata_parser::characters(const std::string& ch)
 bool kdata_parser::endElement(const std::string& name)
 {
    if (name == "orchomp"){ return true; }
-   if (name == "spheres")
+   
+   if ( name == "ignorables" ){
+      if (this->inside_spheres){
+          RAVELOG_ERROR("you can't have </ignorables>"
+                        " inside <spheres>!\n");
+      }
+      if (!this->inside_ignorables){
+          RAVELOG_ERROR("you can't have </ignorables>"
+                        " without matching <ignorables>!\n");
+      }
+      this->inside_ignorables = false;
+   }
+   else if (name == "ignore")
    {
+      if (this->inside_spheres){
+          RAVELOG_ERROR("you can't have </ignore> inside <spheres>!\n");
+      }
+
+      if (!this->inside_ignorables){
+          RAVELOG_ERROR("you can't have </ignore> not"
+                        " inside <ignorables>!\n");
+      }
+   }
+
+   else if (name == "spheres")
+   {
+      if (this->inside_ignorables){
+          RAVELOG_ERROR("you can't have </spheres> "
+                        "inside <ignorables>!\n");
+      }
+
       if (!this->inside_spheres){
-          RAVELOG_ERROR("you can't have </spheres> without matching <spheres>!\n");
+          RAVELOG_ERROR("you can't have </spheres> "
+                        "without matching <spheres>!\n");
       }
       this->inside_spheres = false;
    }
    else if (name == "sphere")
    {
+      if (!this->inside_spheres){
+          RAVELOG_ERROR("you can't have </sphere> inside <ignorables>!\n");
+      }
+
       if (!this->inside_spheres){
           RAVELOG_ERROR("you can't have </sphere> not inside <spheres>!\n");
       }

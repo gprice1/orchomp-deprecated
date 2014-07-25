@@ -157,7 +157,7 @@ void mod::parsePoint( std::istream& sinput, chomp::MatX & point ){
     }   
 }
 
-void parseError( std::istream& sinput ){
+void mod::parseError( std::istream& sinput ){
 
     std::string cmd;
 
@@ -429,8 +429,10 @@ void mod::parseComputeDistanceField(std::ostream & sout, std::istream& sinput)
                         "Could not find kinbody named: " + name;
                 throw OpenRAVE::openrave_exception( error );
             }
-        }
-        else if ( cmd == "getall" ){
+        } else if (cmd == "robot"){
+            sinput >> robot_name;
+            parseRobot( robot_name );
+        }else if ( cmd == "getall" ){
             getall = true;
         }else if (cmd == "aabb_padding"){
             sinput >> aabb_padding;
