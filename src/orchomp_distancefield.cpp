@@ -108,6 +108,28 @@ void DistanceField::setupGrid(size_t x, size_t y, size_t z )
 
 }
 
+void DistanceField::getBounds( OpenRAVE::Vector & lower, 
+                               OpenRAVE::Vector & upper) const
+{
+    
+    lower = upper = pose_world_grid.trans;
+    
+    OpenRAVE::Vector v ( grid.getLength(0),
+                         grid.getLength(1),
+                         grid.getLength(2) );
+
+    OpenRAVE::TransformMatrix rot;
+    OpenRAVE::geometry::matrixFromQuat( rot, pose_world_grid.rot );
+
+    for ( int i = 0; i < 3; i ++ ){
+        for ( int j = 0; j < 3; j ++ ){
+
+            double value = v[i] * rot.m[i*4 + j];
+            if ( value > 0 ){ upper[i] += value;}
+            else{ lower[i] += value; }
+        }
+    }
+}
 
 //gets the transform from the origin to the center of the cell at
 //  the specified indices.

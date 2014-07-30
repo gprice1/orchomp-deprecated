@@ -11,173 +11,14 @@
 
 namespace orchomp{
 
+class CollisionPruner;
+class ArrayCollisionPruner;
 class mod;
-//typedef Eigen::Vector3d_t< OpenRAVE::dReal > Eigen::Vector3d;
 
 OpenRAVE::dReal computeCostFromDist( OpenRAVE::dReal dist,
                                      double epsilon,
                                      Eigen::Vector3d & gradient );
 
-class CollisionPruner{
-  public:
-
-    class Node{
-      public:
-        Node *next, *prev;
-        double value;
-        size_t index;
-    };
-
-    class PruningIterator{
-      public:
-        size_t index;
-        Node * next_node;
-
-        //go forward until, the index has been reached.
-        bool hasNext(){ 
-            if ( next_node->index == index ){ return false; }
-            return true;
-        }
-        size_t getNext(){
-            size_t sphere_index = next_node->index;
-            next_node = next_node->next;
-            return sphere_index;
-        }
-    };
-    
-    Node * head;
-    std::vector< std::pair<Node, Node> > nodes;
-    const int axis;
-    
-    
-    CollisionPruner( int axis, const std::vector< Sphere > & spheres ) :
-        axis( axis )
-    {
-
-        nodes.resize( spheres.size() );
-
-        head = &(nodes[0].first);
-
-        for ( size_t i = 0; i < spheres.size(); i ++ ){
-            nodes[i].first.next = &( nodes[i].second );
-            if ( i == 0 ){
-                nodes[i].first.prev = NULL;
-            }else { 
-                nodes[i].first.prev = &( nodes[i-1].second );
-            }
-
-            nodes[i].first.index = i;
-            nodes[i].second.index = i;
-            
-            nodes[i].second.prev = &(nodes[i].first);
-            if ( i + 1 == spheres.size() ){
-                nodes[i].second.next = NULL;
-            }else { 
-                nodes[i].second.next = &(nodes[i+1].first);
-            }
-        }
-    }
-    
-
-    void assertSorted(){
-        Node * current = head;
-        size_t count = 0;
-        while ( current->next != NULL ){
-            assert( current->value < current->next->value );
-            current = current->next;
-            count ++;
-        }
-        assert( count == nodes.size() - 1 );
-    }
-
-    void sort( const std::vector< OpenRAVE::Vector > & positions, 
-               const std::vector< Sphere > & spheres,
-               int n_set_positions)
-    {
-        for ( size_t i = 0; i < n_set_positions; i ++ ){
-            const double pos = positions[i][axis];
-            const double rad = spheres[i].radius;
-
-            nodes[i].first.value  = pos - rad;
-            nodes[i].second.value = pos + rad;
-        }
-
-        insertion_sort();
-        
-        RAVELOG_ERROR( "Remove this assertion" );
-        assertSorted();
-
-    }
-
-    void insertion_sort(){
-        Node * sorted_list_tail = head;
-        Node * current_element = head->next;
-
-        while ( current_element != NULL ){
-
-            //if the element is out of place then sort it, if it is in place,
-            //  setup the next iteration
-            if ( sorted_list_tail->value > current_element->value ){
-
-                //save the next element to be processed.
-                Node * next_element = current_element->next;
-                
-                //perform insertion
-                insert( sorted_list_tail, current_element );
-
-                //set the current element for the next run.
-                current_element = next_element;
-
-            }else {
-                //setup the next step of insertion sort;
-                sorted_list_tail->next = current_element;
-                sorted_list_tail = current_element;
-                current_element = current_element->next;
-            }
-        }
-    }
-    
-
-    void insert( Node * list_tail, Node * current_element ){
-        
-        //if the prev is null, then we have hit the end of the list, so 
-        //  we stop.
-        const double value = current_element->value;
-
-        while ( list_tail->prev != NULL ){
-            list_tail = list_tail->prev;
-            
-            //we have found the correct spot for the current element,
-            //  it should be placed, after list_tail, because 
-            //  its value is larger.
-            if ( list_tail->value <= value ){
-
-                //set the pointers of the current element.
-                current_element->next = list_tail->next;
-                current_element->prev = list_tail;
-                
-                //set the pointers of the elements surrounding 
-                //  current_element
-                list_tail->next->prev = current_element;
-                list_tail->next = current_element;
-            }
-        }
-        head = current_element;
-        current_element->prev = NULL;
-        current_element->next = list_tail;
-        list_tail->prev = current_element;
-    }
-
-    PruningIterator getIterator( size_t sphere_index ){
-        PruningIterator iter;
-        iter.index = sphere_index;
-        //get the start node corresponding to the current sphere.
-        iter.next_node = nodes[sphere_index].first.next;
-
-        return iter;
-    }
-
-};
 
 
 class SphereCollisionHelper : public chomp::ChompGradientHelper{
@@ -192,7 +33,7 @@ public:
     //and the number of bodies.
     size_t ncspace, nwkspace, nbodies;
     
-    CollisionPruner * pruner;
+    ArrayCollisionPruner * pruner;
 
     // a pointer to the module for acces to stuff like the collision
     //  geometry
@@ -242,11 +83,16 @@ public:
                            double obs_factor=0.7,
                            double epsilon_self=0.01,
                            double obs_factor_self=0.3);
+    ~SphereCollisionHelper();
 
     //The main call for this class.
     //Find the workspace collision gradient for the 
     //  current trajectory.
-    virtual double addToGradient(const chomp::Chomp& c, chomp::MatX& g);
+    virtual double addToGradient(const chomp::MatX& xi,
+                                 const chomp::MatX& pinit,
+                                 const chomp::MatX& pgoal,
+                                 double dt,
+                                 chomp::MatX& g);
 
 
     //these are mostly helper functions for addToGradient. 
@@ -266,10 +112,20 @@ public:
                                    const Eigen::MatrixBase<Derived> & dx_dq,
                                    chomp::MatX & cgrad);
     
+    //returns true if the sphere is in collision with either a sphere
+    //  or an sdf.
+    bool isCollided();
+    
     //calculate the cost and direction for a collision between two spheres.
     OpenRAVE::dReal sphereOnSphereCollision( size_t index1, size_t index2,
-                                             Eigen::Vector3d & direction );
-    bool sphereOnSphereCollision( size_t index1, size_t index2);
+                                             Eigen::Vector3d & direction,
+                                             bool ignore=true);
+    bool sphereOnSphereCollision( size_t index1, size_t index2,
+                                  bool ignore = true);
+    
+    //return true if the sphere corresponding to body_index,
+    //  and the sdf corresponding to sdf_index are in collision
+    bool getSDFCollision(size_t body_index, size_t sdf_index);
 
     //get collisions with the environment from a list of signed distance
     //  fields.
@@ -289,6 +145,8 @@ public:
     virtual void setSpherePositions(
                             const std::vector<OpenRAVE::dReal> & state,
                             bool setInactive=false);
+
+    bool checkCollision( size_t body1, size_t body2 );
 
   public:
   //Public methods for visualization and testing purposes:
@@ -315,6 +173,7 @@ public:
 
   private:
     void getSpheres();
+    void initPruner();
 
     //inline methods for ignoring sphere collisions.
     int getKey( int linkindex1, int linkindex2 ) const;

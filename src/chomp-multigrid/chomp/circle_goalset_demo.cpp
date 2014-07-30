@@ -56,11 +56,10 @@ public:
                                    MatX& h, 
                                    MatX& H){
 
-    assert((qt.cols()==1 && qt.rows()==2) || 
-           (qt.cols()==2 && qt.rows()==1));
+    assert((qt.cols()==1 && qt.rows()==2) || (qt.cols() == 2 && qt.rows() == 1));
 
-    h.resize(1,1);
-    H.resize(1,2);
+    h.conservativeResize(1,1);
+    H.conservativeResize(1,2);
     
     h(0) = mydot(qt,qt) - 4; 
     
@@ -70,6 +69,39 @@ public:
 
   }
 
+};
+
+
+class SquareConstraint : public Constraint {
+public:
+
+  virtual size_t numOutputs(){
+    return 2;
+  }
+
+  virtual void evaluateConstraints(const MatX& qt,
+                                   MatX& h, 
+                                   MatX& H){
+    //bounds col0: lower bounds
+    //       col1: upper bounds
+    //       row0: x-values
+    //       row1: y-values
+    MatX bounds(2,2);
+    bounds << 4,  6,
+             -4, -2;
+
+    h.resize(2,1);
+    H.resize(2,2);
+    H << 1, 0,
+         0, 1;
+
+    for ( int i = 0; i < 2; i ++ ){
+      if      ( qt(i) < bounds(i,0)){ h(i) = qt(i) - bounds(i,0); }
+      else if ( qt(i) > bounds(i,1)){ h(i) = qt(i) - bounds(i,1); }
+      else {                          h(i) = 0; H(i,i) = 0.0;     }
+
+    }
+  }
 };
 
 class CircleFactory: public ConstraintFactory {
@@ -314,6 +346,9 @@ int main(int argc, char** argv) {
   CircleFactory factory;
 
   Chomp chomper(&factory, xi, q0, q1, Nmax, alpha, errorTol);
+  
+  SquareConstraint goalset;
+  chomper.useGoalSet( &goalset );
 
   DebugChompObserver obs;
   chomper.observer = &obs;

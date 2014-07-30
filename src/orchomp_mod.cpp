@@ -734,7 +734,7 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     //deal with collision and gradients.
     if (sphere_collider){
         sphere_collider->gamma = info.gamma;
-        chomper->ghelper = sphere_collider;
+        chomper->gradient->ghelper = sphere_collider;
     }
 
     
@@ -890,7 +890,7 @@ bool mod::gettraj(std::ostream& sout, std::istream& sinput)
 
     //get the start state as an openrave vector
     std::vector< OpenRAVE::dReal > startState;
-    getStateAsVector( chomper->q0, startState );
+    getStateAsVector( q0, startState );
 
     //insert the start state into the trajectory
     trajectory_ptr->Insert( 0, startState );
@@ -906,7 +906,7 @@ bool mod::gettraj(std::ostream& sout, std::istream& sinput)
     
     //get the start state as an openrave vector
     std::vector< OpenRAVE::dReal > endState;
-    getStateAsVector( chomper->q1, endState );
+    getStateAsVector( chomper->gradient->q1, endState );
 
     //insert the end state into the trajectory
     trajectory_ptr->Insert( chomper->xi.rows(), endState );

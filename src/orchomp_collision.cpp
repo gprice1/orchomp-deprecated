@@ -1,5 +1,7 @@
 #include "orchomp_collision.h"
 #include "orchomp_mod.h"
+#include "orchomp_collision_pruner.h"
+
 
 namespace orchomp {
 
@@ -44,9 +46,13 @@ SphereCollisionHelper::SphereCollisionHelper(
     ignorables.insert( module->robot->GetAdjacentLinks().begin(),
                        module->robot->GetAdjacentLinks().end() );
     getSpheres();
+    initPruner();
 
 }
 
+SphereCollisionHelper::~SphereCollisionHelper(){
+    if ( pruner ){ delete pruner; }
+}
 
 OpenRAVE::dReal computeCostFromDist( OpenRAVE::dReal dist,
                                      double epsilon,
@@ -80,20 +86,24 @@ OpenRAVE::dReal computeCostFromDist( OpenRAVE::dReal dist,
 }
 
 
-double SphereCollisionHelper::addToGradient(const chomp::Chomp& c,
+double SphereCollisionHelper::addToGradient(const chomp::MatX& xi,
+                                            const chomp::MatX& pinit,
+                                            const chomp::MatX& pgoal,
+                                            double dt,
                                             chomp::MatX& g) {
     timer.start( "collision" );
 
-    q1 = c.getTickBorderRepeat(-1).transpose();
-    q2 = c.getTickBorderRepeat(0).transpose();
+    q1 = chomp::getTickBorderRepeat(-1, xi, pinit, pgoal, dt).transpose();
+    q2 = chomp::getTickBorderRepeat(0, xi, pinit, pgoal, dt).transpose();
     
-    inv_dt = c.inv_dt;
-
     chomp::MatX g_sdf( 1, ncspace);
-    chomp::MatX g_self( 1, ncspace);    
+    chomp::MatX g_self( 1, ncspace);
+
+    inv_dt = 1/dt;
+    const double inv_dt_squared = inv_dt * inv_dt;
     double total_cost = 0.0;
     
-    for (int current_time=0; current_time<c.N; ++current_time) {
+    for (int current_time=0; current_time<xi.rows(); ++current_time) {
         g_sdf.setZero();
         g_self.setZero();
         
@@ -101,10 +111,11 @@ double SphereCollisionHelper::addToGradient(const chomp::Chomp& c,
 
         q0 = q1;
         q1 = q2;
-        q2 = c.getTickBorderRepeat(current_time+1).transpose();
+        q2 = chomp::getTickBorderRepeat(current_time+1,
+                                        xi, pinit, pgoal, dt).transpose();
 
-        cspace_vel = 0.5 * (q2 - q0) * c.inv_dt;        
-        cspace_accel = (q0 - 2.0*q1 + q2) * (c.inv_dt * c.inv_dt);
+        cspace_vel = 0.5 * (q2 - q0) * inv_dt;        
+        cspace_accel = (q0 - 2.0*q1 + q2) * inv_dt_squared;
        
         
         timer.start( "FK" );
@@ -185,10 +196,6 @@ double SphereCollisionHelper::getActiveCost( size_t body_index,
     //  we only need to compute this update for one of the spheres. 
     for( size_t coll_index=body_index+1; coll_index < nbodies; coll_index++ ){
         
-        //if the spheres are on adjacent links, or on the same link,,
-        //  do not test them for collisions
-        if( ignoreSphereCollision( body_index, coll_index ) ){ continue; }
-
         //get the cost and gradient of the collision.
         Eigen::Vector3d gradient;
         double cost = sphereOnSphereCollision( body_index,
@@ -224,10 +231,6 @@ double SphereCollisionHelper::getInactiveCost( size_t body_index,
 
     for ( size_t coll_index=nbodies; coll_index < spheres.size(); coll_index++ )
     {
-
-        //if the spheres are on adjacent bodies,
-        //  do not test them for collisions
-        if( ignoreSphereCollision( body_index, coll_index )){ continue; }
 
         Eigen::Vector3d gradient;
         double cost =sphereOnSphereCollision( body_index,
@@ -336,6 +339,63 @@ OpenRAVE::dReal SphereCollisionHelper::getSDFCollisions(
 
 }
 
+bool SphereCollisionHelper::checkCollision( size_t body1, size_t body2 )
+{
+
+    if ( body1 > body2 ){ std::swap( body1, body2 ); }
+
+    //the first element is not an active sphere, so continue
+    if ( body1 >= nbodies ){ return false; }
+      
+    //If Body2 is an SDF
+    if ( body2 >= spheres.size() )
+    {
+        if ( getSDFCollision( body1, body2 - spheres.size() ) ){
+            return true;
+        }
+    }
+
+    // If Body2 is a sphere, and
+    //  the pair is not in the ignore set, then check for
+    //  a collision.
+    else if (sphereOnSphereCollision(body1, body2) ){ return true; }
+    return false;
+}
+
+bool SphereCollisionHelper::isCollided()
+{
+    timer.start( "pruner");
+    bool collision = pruner->checkPotentialCollisions( this );
+    timer.stop( "pruner");
+
+    return collision;
+
+    /*
+    assert( pruner );
+    std::vector< std::pair<size_t,size_t> > collision_list;
+
+    timer.start( "get coll" );
+    pruner->getPotentialCollisions( collision_list );
+    timer.stop( "get coll" );
+
+    timer.start( "test coll");
+    for ( size_t i=0; i < collision_list.size(); i ++ )
+    {
+        
+        if ( checkCollision( collision_list[i].first,
+                             collision_list[i].second ) )
+        {
+
+            timer.stop( "test coll");
+            return true;
+        }
+    }
+    timer.stop( "test coll");
+    return false;
+    */
+}
+
+
 bool SphereCollisionHelper::getSDFCollisions(size_t body_index)
 {
     
@@ -355,9 +415,27 @@ bool SphereCollisionHelper::getSDFCollisions(size_t body_index)
     return false;
 }
 
+bool SphereCollisionHelper::getSDFCollision(size_t body_index, 
+                                            size_t sdf_index)
+{
+    
+    const OpenRAVE::dReal dist = module->sdfs[sdf_index].getDist(
+                                         sphere_positions[body_index]);
+        
+    return (dist - spheres[body_index].radius < 0 );
+}
+
 OpenRAVE::dReal SphereCollisionHelper::sphereOnSphereCollision(
                                 size_t index1, size_t index2,
-                                Eigen::Vector3d & gradient ){
+                                Eigen::Vector3d & gradient,
+                                bool ignore){
+
+    const Sphere & sphere1 = spheres[index1];
+    const Sphere & sphere2 = spheres[index2];
+
+    if ( ignore && ignoreSphereCollision( sphere1, sphere2 ) ){ 
+        return 0.0;
+    }
 
     //calculate the distance between the two centers of the spheres,
     //  also get the vector from the collision sphere to the
@@ -372,8 +450,8 @@ OpenRAVE::dReal SphereCollisionHelper::sphereOnSphereCollision(
     // get the distance between the spheres, with padding corresponding to
     //  epsilon.
     
-    const double radius1 = spheres[ index1 ].radius;
-    const double radius2 = spheres[ index2 ].radius;
+    const double radius1 = sphere1.radius;
+    const double radius2 = sphere2.radius;
     
     const double total_radius = radius1 + radius2;
     const double total_range  = total_radius + epsilon_self;
@@ -399,7 +477,15 @@ OpenRAVE::dReal SphereCollisionHelper::sphereOnSphereCollision(
 
 
 bool SphereCollisionHelper::sphereOnSphereCollision( size_t index1,
-                                                     size_t index2 ){
+                                                     size_t index2,
+                                                     bool ignore){
+    
+    const Sphere & sphere1 = spheres[index1];
+    const Sphere & sphere2 = spheres[index2];
+
+    if ( ignore && ignoreSphereCollision( sphere1, sphere2 ) ){ 
+        return false;
+    }
 
     //calculate the distance between the two centers of the spheres,
     //  also get the vector from the collision sphere to the
@@ -412,7 +498,7 @@ bool SphereCollisionHelper::sphereOnSphereCollision( size_t index1,
                                       diff[2]*diff[2] ; 
 
     
-    const double total_radius = spheres[index1].radius + spheres[index2].radius;
+    const double total_radius = sphere1.radius + sphere2.radius;
 
     //if the distance is less than 0, it is in collision;
     if (dist_sqrd <= total_radius * total_radius){  return true; }
@@ -472,7 +558,12 @@ void SphereCollisionHelper::setSpherePositions(
         sphere_positions[i] = t * sphere.position;
     }
 
-    if (pruner){ pruner->sort( sphere_positions, spheres, size); }
+    if (pruner){
+        timer.start( "sort");
+        pruner->sort( sphere_positions, size);
+        timer.stop( "sort");
+    }
+
     if ( setInactive ){ inactive_spheres_have_been_set = true;}
 
 }
@@ -623,13 +714,15 @@ void SphereCollisionHelper::benchmark( int num_trials,
                                        double pause_time,
                                        bool print){
     
+
     int collisions_or(0), collisions_sphere(0),
         collisions_or_self(0), collisions_sphere_self(0), 
         collisions_or_env(0), collisions_sphere_sdf(0);
 
     int missed_collisions(0), fake_collisions( 0 );
     int missed_collisions_self( 0), missed_collisions_env(0);
-    int fake_collisions_self(0), fake_collisions_sdf(0);
+    int fake_collisions_self(0), fake_collisions_sdf(0), 
+        pruning_missed(0);
     
     for ( int i = 0; i < num_trials; i ++ ){
         if ( i % 1000 == 0 ){
@@ -649,18 +742,21 @@ void SphereCollisionHelper::benchmark( int num_trials,
 
         bool is_collided_or( false ), is_collided_sphere(false),
              is_collided_or_self(false), is_collided_sphere_self(false),
-             is_collided_or_env(false), is_collided_sphere_sdf(false);
+             is_collided_or_env(false), is_collided_sphere_sdf(false),
+             is_collided_pruner(false);
 
         OpenRAVE::CollisionReportPtr env_report(new OpenRAVE::CollisionReport());
         OpenRAVE::CollisionReportPtr self_report(new OpenRAVE::CollisionReport());
         
         timer.start( "openrave env" );
-        is_collided_or_env = 
-                module->environment->CheckCollision( module->robot, env_report );
+        is_collided_or_env = module->environment->CheckCollision(
+                                                  module->robot,
+                                                  env_report );
         timer.stop( "openrave env" );
         
         timer.start("openrave self");
-        is_collided_or_self = module->robot->CheckSelfCollision( self_report );
+        is_collided_or_self = module->robot->CheckSelfCollision(
+                                                            self_report );
         timer.stop( "openrave self");
 
 
@@ -677,7 +773,9 @@ void SphereCollisionHelper::benchmark( int num_trials,
         timer.start("sphere self");
         is_collided_sphere_self = isCollidedSelf(check_all);
         timer.stop( "sphere self");
-       
+
+        is_collided_pruner = isCollided();
+
         bool fake( false ), missed( false );
         
         if( is_collided_or_self || is_collided_or_env ){
@@ -699,7 +797,20 @@ void SphereCollisionHelper::benchmark( int num_trials,
 
         if( is_collided_sphere_self ){ collisions_sphere_self ++;}
         if( is_collided_sphere_sdf ){ collisions_sphere_sdf ++;}
+
+        if( !is_collided_pruner && is_collided_sphere ){
+            
+            std::string type; 
+            if ( is_collided_sphere_self){ type = "self"; }
+            if ( is_collided_sphere_sdf){ type = "sdf"; }
+            RAVELOG_ERROR( "ERROR in pruning, missed %s collision\n",
+                            type.c_str() );
+            pruning_missed ++;
+        }
         
+        if( is_collided_pruner && !is_collided_sphere ){
+            RAVELOG_ERROR( "ERROR in pruning, fake collision\n" );
+        }
         
         if( (is_collided_or_self || is_collided_or_env ) && 
            !(is_collided_sphere_sdf || is_collided_sphere_self) ){
@@ -750,9 +861,11 @@ void SphereCollisionHelper::benchmark( int num_trials,
         }
     }
 
-    double total_sphere, total_or,
+    double total_sphere, total_or, total_pruner,
            sphere_self, sphere_sdf, sphere_fk,
-           or_self, or_env, or_fk;
+           or_self, or_env, or_fk, pruner_getting,
+           pruner_testing, pruner_sorting;
+
     sphere_self = timer.getTotal( "sphere self" );
     sphere_sdf =  timer.getTotal( "sphere sdf");
     sphere_fk =   timer.getTotal( "sphere fk" );
@@ -762,10 +875,16 @@ void SphereCollisionHelper::benchmark( int num_trials,
 
     total_sphere = timer.getTotal( "sphere self" ) +
                    timer.getTotal( "sphere sdf") +
-                   timer.getTotal( "sphere fk" );
+                   timer.getTotal( "sphere fk" ) -
+                   timer.getTotal( "sort2" ) -
+                   timer.getTotal( "sort" );
     total_or = timer.getTotal( "openrave self" ) +
                timer.getTotal( "openrave env" ) +
                timer.getTotal( "or fk" );
+
+    pruner_sorting = timer.getTotal( "sort" );
+    pruner_testing = timer.getTotal( "pruner" ); 
+    total_pruner = pruner_testing + sphere_fk;
 
     if (print){
         RAVELOG_INFO("Total collisions:  %d\n" , collisions_or ); 
@@ -817,7 +936,12 @@ void SphereCollisionHelper::benchmark( int num_trials,
                   << "\t" << sphere_fk
                   << "\t" << sphere_self
                   << "\t" << sphere_sdf
+                  << "\t" << pruning_missed
+                  << "\n" << total_pruner 
+                  << "\t" << pruner_sorting
+                  << "\t" << pruner_testing 
                   << "\n";
+
     }
 
 }
@@ -844,10 +968,6 @@ bool SphereCollisionHelper::isCollidedSelf( bool checkAll ){
     for ( size_t i = 0; i < nbodies; i ++ ){
         for ( size_t j = i+1; j < spheres.size(); j ++ ){
             
-            //if the spheres are on adjacent links, or on the same link,,
-            //  do not test them for collisions
-            if(ignoreSphereCollision( i, j )){ continue; }
-
             if ( sphereOnSphereCollision( i, j ) ){
                 if ( !checkAll ) { return true; }
                 isInCollision = true;
@@ -1011,6 +1131,12 @@ inline bool SphereCollisionHelper::ignoreSphereCollision(
     }
 
     return false;
+}
+
+void SphereCollisionHelper::initPruner(){
+    if ( !pruner ){
+        pruner = new ArrayCollisionPruner( 0, spheres, module->sdfs );
+    }  
 }
 
 inline bool SphereCollisionHelper::ignoreSphereCollision(

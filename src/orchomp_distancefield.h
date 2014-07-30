@@ -61,7 +61,7 @@ public:
 
     //the transform from the world origin to the field
     OpenRAVE::Transform pose_world_grid, pose_grid_world;
-   
+    
     //the transform from the bottom left corner to the middle of the
     //cube
     OpenRAVE::Vector grid_center;
@@ -89,7 +89,11 @@ public:
     //  the specified indices.
     void getCenterFromIndex( size_t x, size_t y, size_t z,
                            OpenRAVE::Transform & t ) const;    
-
+    
+    //Get the upper and lower bounds in each of the three dimensions
+    //  of the cube, in the world space. 
+    void getBounds( OpenRAVE::Vector & lower,
+                    OpenRAVE::Vector & upper) const;
 
 private:
 
@@ -102,6 +106,7 @@ private:
     
     fill_t fill;
     
+
     bool isCorrectSize();
 
     //computes a distance field from the geometry of the object

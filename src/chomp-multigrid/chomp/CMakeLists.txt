@@ -1,14 +1,18 @@
 
 
 add_library(chomp SHARED
-    Constraint.cpp
-    ConstraintFactory.cpp
-    Chomp.cpp
-    HMC.cpp
     chomputil.cpp
-    chomp_optimizer.cpp
-    chomp_gradient.cpp
+    
+    ConstraintFactory.cpp
+    Constraint.cpp
+    
+    Chomp.cpp
+    ChompGradient.cpp
+    
+    HMC.cpp
     )
+
+
 
 target_link_libraries( chomp mzcommon )
 
@@ -29,6 +33,5 @@ endif()
 target_link_libraries(circle_goalset_demo ${demo_libs})
 target_link_libraries(circle_demo ${demo_libs})
 target_link_libraries(map2d_demo ${demo_libs})
-
 
 
