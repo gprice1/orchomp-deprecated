@@ -38,9 +38,10 @@ SphereCollisionHelper::SphereCollisionHelper(
         pruner( NULL ),
         module(module),
         inactive_spheres_have_been_set( false ),
-        gamma( gamma ),
-        epsilon( epsilon ), obs_factor(obs_factor),
-        epsilon_self( epsilon_self ), obs_factor_self( obs_factor_self)
+        gamma_sdf( gamma*obs_factor ),
+        gamma_self( gamma*obs_factor_self ),
+        epsilon( epsilon ),
+        epsilon_self( epsilon_self )
 {
     //fill the ignorables set with the adjacent links
     ignorables.insert( module->robot->GetAdjacentLinks().begin(),
@@ -62,10 +63,6 @@ OpenRAVE::dReal computeCostFromDist( OpenRAVE::dReal dist,
     //  of get dist, and the epsilon value of the planner
     //if the cost is negative, invert the gradient, and calculate the
     //  cost modified by epsilon
-
-
-
-
     if (dist < 0) {
         gradient *= -1;
         return -dist + 0.5*epsilon;
@@ -84,6 +81,20 @@ OpenRAVE::dReal computeCostFromDist( OpenRAVE::dReal dist,
     return 0;
 
 }
+//The main call for this class.
+//Find the workspace collision gradient for the 
+//  current trajectory.
+double SphereCollisionHelper::addToGradient(chomp::ConstMatMap& xi,
+                             const chomp::MatX& pinit,
+                             const chomp::MatX& pgoal,
+                             double dt,
+                             chomp::MatMap& g)
+{
+    
+    double val = 100;
+    RAVELOG_ERROR( "This function has not yet been implemented\n");
+    return val;
+}
 
 
 double SphereCollisionHelper::addToGradient(const chomp::MatX& xi,
@@ -91,33 +102,27 @@ double SphereCollisionHelper::addToGradient(const chomp::MatX& xi,
                                             const chomp::MatX& pgoal,
                                             double dt,
                                             chomp::MatX& g) {
+    
     timer.start( "collision" );
 
     q1 = chomp::getTickBorderRepeat(-1, xi, pinit, pgoal, dt).transpose();
     q2 = chomp::getTickBorderRepeat(0, xi, pinit, pgoal, dt).transpose();
-    
-    chomp::MatX g_sdf( 1, ncspace);
-    chomp::MatX g_self( 1, ncspace);
 
     inv_dt = 1/dt;
     const double inv_dt_squared = inv_dt * inv_dt;
     double total_cost = 0.0;
     
-    for (int current_time=0; current_time<xi.rows(); ++current_time) {
-        g_sdf.setZero();
-        g_self.setZero();
-        
-        double sdf_cost(0), self_cost(0);
+    for ( int current_time=0; current_time < xi.rows(); ++current_time)
+    {
 
         q0 = q1;
         q1 = q2;
-        q2 = chomp::getTickBorderRepeat(current_time+1,
-                                        xi, pinit, pgoal, dt).transpose();
+        q2 = chomp::getTickBorderRepeat(current_time+1, xi,
+                                        pinit, pgoal, dt).transpose();
 
         cspace_vel = 0.5 * (q2 - q0) * inv_dt;        
         cspace_accel = (q0 - 2.0*q1 + q2) * inv_dt_squared;
        
-        
         timer.start( "FK" );
         //Set the positions of all of the spheres,
         //  for the current configuration.
@@ -126,88 +131,61 @@ double SphereCollisionHelper::addToGradient(const chomp::MatX& xi,
 
         //clear the jacobian matrices
         jacobians.clear();
-    
-        for (size_t body_index=0; body_index < nbodies; body_index++) {
-            
-            timer.start( "self collision" );
-            self_cost += getActiveCost( body_index, g_self );
-                        
-            //get the contribution from the inactive_spheres
-            Eigen::Vector3d inactive_gradient( 0,0,0);
-            double inactive_cost = getInactiveCost( body_index,
-                                                    inactive_gradient);
-            inactive_gradient /= inactive_cost;
-
-            
-            timer.stop( "self collision" );
-
-            timer.start( "sdf collision" );
-            Eigen::Vector3d sdf_gradient(0,0,0);
-            double current_sdf_cost = getSDFCollisions( body_index,
-                                                        sdf_gradient );
-            
-            timer.stop( "sdf collision" );
-            if ( current_sdf_cost > 0 || inactive_cost > 0 ){
-                //turn the jacobian into a matrix
-                const std::vector< double > & jacobian = 
-                                              getJacobian( body_index ); 
-
-                ConstMatrixMap dx_dq ( jacobian.data(), nwkspace, ncspace);
-                
-
-                if ( inactive_cost > 0 ) {
-
-                    timer.start( "self collision" );
-                    self_cost += addInWorkspaceGradient( inactive_cost,
-                                                         inactive_gradient,
-                                                         dx_dq, g_self );
-                    timer.stop( "self collision" );
-                }
-                if ( current_sdf_cost > 0 ){
-                    timer.start( "sdf collision" );
-                    sdf_cost += addInWorkspaceGradient( current_sdf_cost,
-                                                        sdf_gradient,
-                                                        dx_dq, g_sdf);
-                    timer.stop( "sdf collision" );
-                }
-            }
+        
+        //get all of the potential collisions, and test those
+        //  for collision
+        CollisionReport potential;
+        pruner->getPotentialCollisions( potential );
+        
+        for ( CollisionReport::iterator i = potential.begin();
+              i != potential.end();
+              ++i )
+        {
+            total_cost += getCollisionCostAndGradient(i->first,
+                                                      i->second,
+                                                      g.row(current_time));
         }
-
-        g.row( current_time ) += g_sdf * obs_factor + g_self * obs_factor_self;
-        total_cost += sdf_cost * obs_factor + self_cost * obs_factor_self;
-
     }
-
 
     timer.stop( "collision" );
     return total_cost;
 
 }
 
-double SphereCollisionHelper::getActiveCost( size_t body_index, 
-                                             chomp::MatX & g_self ){
+template <class Derived>
+double SphereCollisionHelper::getCollisionCostAndGradient(
+                                    int index1, int index2,
+                                    Eigen::MatrixBase<Derived> const & g)
+{
+    if ( index1 > index2 ){ std::swap( index1, index2 ); }
     
-    double total_cost = 0;
+    //if both indices are for spheres.
+    if ( index2 < int( spheres.size() ) ){
+        return getSphereCost( index1, index2, g );
+    }
 
-    //get the self collisions with the active spheres.
-    //We only need to go up, because we only need to check all collisions once.
-    //  Furthermore, collisions from sphere_i to sphere_j and from sphere_j
-    //  to sphere_i result in the same c-space gradient update, so,
-    //  we only need to compute this update for one of the spheres. 
-    for( size_t coll_index=body_index+1; coll_index < nbodies; coll_index++ ){
-        
-        //get the cost and gradient of the collision.
-        Eigen::Vector3d gradient;
-        double cost = sphereOnSphereCollision( body_index,
-                                               coll_index,
-                                               gradient);
-        if ( cost <= 0.0 ){ continue; }
-        
+    //if the potential collision is between an active sphere and an sdf.
+    return getSDFCost( index1, index2, g);
+
+}
+
+template <class Derived>
+double SphereCollisionHelper::getSphereCost( int index1, int index2,
+                                     Eigen::MatrixBase<Derived> const & g)
+{
+
+    //get the cost and gradient of the collision.
+    Eigen::Vector3d gradient;
+    double cost = sphereOnSphereCollision( index1, index2, gradient);
+
+    if ( cost <= 0.0 ){ return 0.0; }
+    
+    if ( index2 < int( nbodies ) ){
         //get the jacobians of the spheres.
         std::vector< double > jacobian;
         jacobian.resize( nwkspace * ncspace );
-        const std::vector< double > & jac1 = getJacobian( body_index ); 
-        const std::vector< double > & jac2 = getJacobian( coll_index ); 
+        const std::vector< double > & jac1 = getJacobian( index1 ); 
+        const std::vector< double > & jac2 = getJacobian( index2 ); 
         
         for ( size_t i = 0; i < jac1.size() ; i ++ ){
             jacobian[i] = jac1[i] - jac2[i];
@@ -217,43 +195,50 @@ double SphereCollisionHelper::getActiveCost( size_t body_index,
         MatrixMap dx_dq ( jacobian.data(), nwkspace, ncspace );
 
         //add in the cost of the collision.
-        total_cost += addInWorkspaceGradient( cost, gradient, dx_dq, g_self);
+        return addInWorkspaceGradient( cost, gradient, dx_dq, g, true);
     }
 
-    return total_cost;
-}
+    //It is a collision between an active and inactive sphere
+    //get the jacobians of the active sphere.
+    const std::vector< double > & jacobian = getJacobian( index1 ); 
 
+    //map the jacobian vector into an eigen matrix.
+    ConstMatrixMap dx_dq ( jacobian.data(), nwkspace, ncspace );
 
-double SphereCollisionHelper::getInactiveCost( size_t body_index,
-                                               Eigen::Vector3d & gradient_total ){
+    //add in the cost of the collision.
+    return addInWorkspaceGradient( cost, gradient, dx_dq, g, true );
 
-    double total_cost = 0.0;
-
-    for ( size_t coll_index=nbodies; coll_index < spheres.size(); coll_index++ )
-    {
-
-        Eigen::Vector3d gradient;
-        double cost =sphereOnSphereCollision( body_index,
-                                               coll_index,
-                                               gradient);
-        if ( cost <= 0.0 ){ continue; }
-        
-        gradient_total += gradient * cost;
-        total_cost += cost;
-    }
-
-    return total_cost;
 }
 
 
 template <class Derived>
+double SphereCollisionHelper::getSDFCost(int index1, int index2,
+                                Eigen::MatrixBase<Derived> const & g)
+{
+
+    Eigen::Vector3d gradient;
+    double cost = getSDFCollision(index1, index2-spheres.size(), gradient);
+
+    if (cost <= 0.0 ){return 0.0; }
+
+    //It is a collision between an active and inactive sphere
+    //get the jacobians of the active sphere.
+    const std::vector< double > & jacobian = getJacobian( index1 ); 
+    //map the jacobian vector into an eigen matrix.
+    ConstMatrixMap dx_dq ( jacobian.data(), nwkspace, ncspace );
+
+    //add in the cost of the collision.
+    return addInWorkspaceGradient( cost, gradient, dx_dq, g, false);
+}
+
+template <class Derived1, class Derived2>
 double SphereCollisionHelper::addInWorkspaceGradient(
-                                   double cost, const Eigen::Vector3d & grad,
-                                   const Eigen::MatrixBase<Derived> & dx_dq,
-                                   chomp::MatX & g_current)
+                              double cost, const Eigen::Vector3d & grad,
+                              const Eigen::MatrixBase<Derived1> & dx_dq,
+                              Eigen::MatrixBase<Derived2> const & g,
+                              bool is_self_collision)
 
 {
-    
     timer.start( "projection" );
     wkspace_vel = dx_dq * cspace_vel;
 
@@ -265,9 +250,10 @@ double SphereCollisionHelper::addInWorkspaceGradient(
     
     float wv_norm = wkspace_vel.norm();
     wkspace_vel /= wv_norm;
-
-    // add to total
-    double scl = wv_norm * gamma / inv_dt;
+    
+    //change gamma depending on if it is self or sdf collision
+    double scl = wv_norm / inv_dt 
+                 * (is_self_collision ? gamma_self : gamma_sdf );
 
     P = chomp::MatX::Identity(nwkspace, nwkspace)
         - (wkspace_vel * wkspace_vel.transpose());
@@ -276,130 +262,43 @@ double SphereCollisionHelper::addInWorkspaceGradient(
    
     //          scalar * M-by-W        * (WxW * Wx1   - scalar * Wx1)
     //  The .noalias() call is simply an optimization for eigen.
-    g_current.noalias() += (scl * (dx_dq.transpose() *
-                 (P * grad - cost * K) ).transpose());
+    const_cast<Eigen::MatrixBase<Derived2> &>(g)
+                  += (scl * (dx_dq.transpose() *
+                     (P * grad - cost * K) ).transpose());
 
     timer.stop( "projection" );
+
     return cost * scl;
 }
 
-
-
-
-OpenRAVE::dReal SphereCollisionHelper::getSDFCollisions(
-                                      size_t body_index,
-                                      Eigen::Vector3d & gradient,
-                                      bool viewDists)
+//If the given sphere overlaps with the given sdf, return true.
+double SphereCollisionHelper::getSDFCollision(int sphere_index, 
+                                              int sdf_index,
+                                              Eigen::Vector3d & gradient)
 {
+    vec3 gradient_vec; 
+    //get the distance and gradient.
+    OpenRAVE::dReal dist = module->sdfs[sdf_index].getDist( 
+                                    sphere_positions[sphere_index], 
+                                    gradient_vec );
+
+
+    if (dist == HUGE_VAL){ return 0.0; }
+
+    gradient << gradient_vec[0], gradient_vec[1], gradient_vec[2];
+    //adjust the value of the distance by the radius of the
+    //  sphere to account for the size of the sphere
+    dist -= spheres[sphere_index].radius;
     
-    OpenRAVE::dReal dist = HUGE_VAL;
-    size_t sdf_index = -1;
-
-    
-    //check all of the sdfs, and get the one with the least dist 
-    for ( size_t i = 0; i < module->sdfs.size(); i ++ ){
-        
-
-        OpenRAVE::dReal current_dist;
-        vec3 current_gradient; 
-
-        //get the distance and gradient.
-        current_dist = module->sdfs[i].getDist( sphere_positions[body_index], 
-                                                current_gradient );
-        
-        if (current_dist < dist) {
-            dist = current_dist;
-
-            gradient[0] = current_gradient[0];
-            gradient[1] = current_gradient[1];
-            gradient[2] = current_gradient[2];
-
-            sdf_index = i;
-        }
-    }
-
-    if (dist != HUGE_VAL){
-
-        //adjust the value of the distance by the radius of the
-        //  sphere to account for the size of the sphere
-        dist -= spheres[body_index].radius;
-        
-        if ( viewDists && dist > epsilon ){
-            createCube( dist, module->sdfs[sdf_index].cube_extent,
-                        sphere_positions[body_index], sdf_index);
-        }
-
-        //debugStream << "Finished SDF Collisions" << std::endl;
-        return computeCostFromDist( dist, epsilon, gradient );
-        
-
-    }
-
-    return 0.0;
+    //debugStream << "Finished SDF Collisions" << std::endl;
+    return computeCostFromDist( dist, epsilon, gradient );
 
 }
 
-bool SphereCollisionHelper::checkCollision( size_t body1, size_t body2 )
-{
-
-    if ( body1 > body2 ){ std::swap( body1, body2 ); }
-
-    //the first element is not an active sphere, so continue
-    if ( body1 >= nbodies ){ return false; }
-      
-    //If Body2 is an SDF
-    if ( body2 >= spheres.size() )
-    {
-        if ( getSDFCollision( body1, body2 - spheres.size() ) ){
-            return true;
-        }
-    }
-
-    // If Body2 is a sphere, and
-    //  the pair is not in the ignore set, then check for
-    //  a collision.
-    else if (sphereOnSphereCollision(body1, body2) ){ return true; }
-    return false;
-}
-
-bool SphereCollisionHelper::isCollided()
-{
-    timer.start( "pruner");
-    bool collision = pruner->checkPotentialCollisions( this );
-    timer.stop( "pruner");
-
-    return collision;
-
-    /*
-    assert( pruner );
-    std::vector< std::pair<size_t,size_t> > collision_list;
-
-    timer.start( "get coll" );
-    pruner->getPotentialCollisions( collision_list );
-    timer.stop( "get coll" );
-
-    timer.start( "test coll");
-    for ( size_t i=0; i < collision_list.size(); i ++ )
-    {
-        
-        if ( checkCollision( collision_list[i].first,
-                             collision_list[i].second ) )
-        {
-
-            timer.stop( "test coll");
-            return true;
-        }
-    }
-    timer.stop( "test coll");
-    return false;
-    */
-}
-
-
+// If the sphere overlaps an SDF, return true.
 bool SphereCollisionHelper::getSDFCollisions(size_t body_index)
 {
     
-    //check all of the sdfs, and get the one with the least dist 
     const double radius = spheres[body_index].radius;
 
     for ( size_t i = 0; i < module->sdfs.size(); i ++ ){
@@ -415,6 +314,8 @@ bool SphereCollisionHelper::getSDFCollisions(size_t body_index)
     return false;
 }
 
+
+//If the given sphere overlaps with the given sdf, return true.
 bool SphereCollisionHelper::getSDFCollision(size_t body_index, 
                                             size_t sdf_index)
 {
@@ -425,7 +326,7 @@ bool SphereCollisionHelper::getSDFCollision(size_t body_index,
     return (dist - spheres[body_index].radius < 0 );
 }
 
-OpenRAVE::dReal SphereCollisionHelper::sphereOnSphereCollision(
+double SphereCollisionHelper::sphereOnSphereCollision(
                                 size_t index1, size_t index2,
                                 Eigen::Vector3d & gradient,
                                 bool ignore){
@@ -479,7 +380,6 @@ OpenRAVE::dReal SphereCollisionHelper::sphereOnSphereCollision(
 bool SphereCollisionHelper::sphereOnSphereCollision( size_t index1,
                                                      size_t index2,
                                                      bool ignore){
-    
     const Sphere & sphere1 = spheres[index1];
     const Sphere & sphere2 = spheres[index2];
 
@@ -505,6 +405,40 @@ bool SphereCollisionHelper::sphereOnSphereCollision( size_t index1,
     
     return false;
 
+}
+
+//return true if the given bodies (sphere on sphere or sphere on sdf),
+//  overlap.
+bool SphereCollisionHelper::checkCollision( size_t body1, size_t body2 )
+{
+
+    if ( body1 > body2 ){ std::swap( body1, body2 ); }
+
+    //the first element is not an active sphere, so continue
+    if ( body1 >= nbodies ){ return false; }
+      
+    //If Body2 is an SDF
+    if ( body2 >= spheres.size() )
+    {
+        if ( getSDFCollision( body1, body2 - spheres.size() ) ){
+            return true;
+        }
+    }
+
+    // If Body2 is a sphere, and
+    //  the pair is not in the ignore set, then check for
+    //  a collision.
+    else if (sphereOnSphereCollision(body1, body2) ){ return true; }
+    return false;
+}
+
+bool SphereCollisionHelper::isCollided()
+{
+    timer.start( "pruner");
+    bool collision = pruner->checkPotentialCollisions( this );
+    timer.stop( "pruner");
+
+    return collision;
 }
 
 void SphereCollisionHelper::setSpherePositions( const chomp::MatX & q,
@@ -876,7 +810,6 @@ void SphereCollisionHelper::benchmark( int num_trials,
     total_sphere = timer.getTotal( "sphere self" ) +
                    timer.getTotal( "sphere sdf") +
                    timer.getTotal( "sphere fk" ) -
-                   timer.getTotal( "sort2" ) -
                    timer.getTotal( "sort" );
     total_or = timer.getTotal( "openrave self" ) +
                timer.getTotal( "openrave env" ) +

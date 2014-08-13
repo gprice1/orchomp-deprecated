@@ -123,6 +123,12 @@ def readKnownStates( filename ):
 def setRightArmState( state ):
     robot.SetDOFValues( state, robot.GetManipulators()[0].GetArmIndices() )
 
+def printKnownStates( known_states ):
+    for key, value in known_states.items():
+        print key, ":"
+        setstate( value )
+        print robot.GetDOFValues()
+
 def setstate( state ):
 
     robot.SetDOFValues( state[0], robot.GetManipulators()[0].GetArmIndices() )
@@ -146,7 +152,7 @@ def main():
     robot = e.GetRobot( 'Herb2' )
     
     knownstates = readKnownStates( "data/knownstates.data")
-    userGetRandomArmStates( "data/randomarmstates_0.data" )
+    printKnownStates( knownstates )
 
     return 
     

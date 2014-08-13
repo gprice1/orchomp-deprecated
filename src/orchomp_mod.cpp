@@ -89,6 +89,10 @@ mod::mod(OpenRAVE::EnvironmentBasePtr penv) :
        RegisterCommand("benchmark",
             boost::bind(&mod::benchmark,this,_1,_2),
             "benchmark the collision detection system");
+       RegisterCommand("visualizewholetraj",
+            boost::bind(&mod::visualizeWholeTrajectory,this,_1,_2),
+            "benchmark the collision detection system");
+
 }
 
 /* ======================================================================== *
@@ -127,7 +131,6 @@ bool mod::benchmark(std::ostream& sout, std::istream& sinput)
         } else if ( cmd == "print" ){
             print = true;
         }
-
 
         //error case
         else{ parseError( sinput ); }
@@ -230,8 +233,8 @@ bool mod::viewspheresVec(const chomp::MatX & q,
         chomp::MatX dxdq, cgrad;
         Eigen::Vector3d gradient;
 
-        sdf_cost = sphere_collider->getSDFCollisions( i, gradient);
-        self_cost = sphere_collider->getInactiveCost( i, gradient);
+        sdf_cost = 0;
+        self_cost = 0;
         
         if (sdf_cost + self_cost == 0 ){ continue; }
 
@@ -275,7 +278,91 @@ bool mod::viewspheresVec(const chomp::MatX & q,
     }
     
     timer.wait( time );
+    
+    for ( size_t i = 0; i < bodies.size() ; i ++ ){
+        environment->Remove( bodies[i] );
+    }
+    
+    return true;
+}
 
+
+//view the collision geometry. .
+bool mod::visualizeWholeTrajectory( std::ostream& sout,
+                                    std::istream& sinput)
+{
+    double time = 20;
+    if ( !sinput.eof() ){
+        sinput >> time;
+    }
+    
+    if ( !chomper ){
+        RAVELOG_ERROR( "Iterate must be called before a playback" );
+        return false;
+    }
+
+    const chomp::MatX & xi = chomper->xi;
+    chomp::MatX traj( xi.rows()+2, xi.cols());
+    traj.row(0) = chomper->gradient->q0;
+    traj.row(traj.rows()-1) = chomper->gradient->q1;
+
+    traj.block(1, 0, xi.rows(), xi.cols()) = xi;
+
+    if ( !sphere_collider ) { 
+        RAVELOG_ERROR( "There is no sphere collider, so viewing the" 
+                       " spheres is impossible" );
+        return true;
+    }
+    
+    OpenRAVE::Vector start_color( 0.9294112, 0.4666667, 0.41568627 );
+    OpenRAVE::Vector end_color( 0.184313, 0.40392156, 0.584313 );
+    OpenRAVE::Vector diff = end_color - start_color;
+
+    char text_buf[1024];
+    std::vector< OpenRAVE::KinBodyPtr > bodies;
+    for ( int j =0; j < traj.rows(); j ++ )
+    {
+
+        sphere_collider->setSpherePositions( traj.row(j) );
+        
+        int i = 8;
+
+            //extract the current sphere
+            const Sphere & current_sphere = sphere_collider->spheres[i] ;
+
+            //make a kinbody sphere object to correspond to this sphere.
+            OpenRAVE::KinBodyPtr sbody = 
+                    OpenRAVE::RaveCreateKinBody( environment );
+            sprintf( text_buf, "orchomp_sphere_%d_%d", int(j), int(i));
+            sbody->SetName(text_buf);
+            
+            //set the dimensions and transform of the sphere.
+            std::vector< OpenRAVE::Vector > svec;
+
+            OpenRAVE::Vector position = 
+                                sphere_collider->sphere_positions[ i ];
+
+            position.w = current_sphere.radius*0.8; 
+
+            //give the kinbody the sphere parameters.
+            svec.push_back( position );
+            sbody->InitFromSpheres(svec, true);
+            
+            bodies.push_back( sbody );
+            environment->Add( sbody );
+            
+            double u = double(j)/double(xi.rows());
+            OpenRAVE::Vector color = start_color + diff * u;  
+            
+            sbody->GetLinks()[0]->GetGeometries()[0]
+                                            ->SetAmbientColor( color );
+            sbody->GetLinks()[0]->GetGeometries()[0]
+                                            ->SetDiffuseColor( color );
+            //sbody->GetLinks()[0]->GetGeometries()[0]->SetTransparency(0.2);
+    }
+    
+    timer.wait( time );
+    
     for ( size_t i = 0; i < bodies.size() ; i ++ ){
         environment->Remove( bodies[i] );
     }
@@ -491,7 +578,7 @@ bool mod::viewtsr(std::ostream & sout, std::istream& sinput){
     assert( tsrs.size() > index );
 
     //TSRs will be green because that is the color that they are.
-    OpenRAVE::Vector color( 0,1,0);
+    OpenRAVE::Vector color( 0.5,0.5,0.5);
     OpenRAVE::Vector size( 
                 tsrs[index]->_Bw(0,1) - tsrs[index]->_Bw(0,0),
                 tsrs[index]->_Bw(1,1) - tsrs[index]->_Bw(1,0),
@@ -640,18 +727,6 @@ bool mod::create(std::ostream& sout, std::istream& sinput)
         assert( isWithinLimits( q0 ) );
         assert( isWithinLimits( q1 ) );
 
-        //create the sphere collider to actually 
-        //  use the sphere information, and pass in its parameters.
-        if ( !info.noCollider && !sphere_collider ){
-            
-            //create a collider object to use the geometry
-            sphere_collider = new SphereCollisionHelper(
-                              n_dof, this);
-            sphere_collider->epsilon = info.epsilon;
-            sphere_collider->epsilon_self = info.epsilon_self;
-            sphere_collider->obs_factor = info.obs_factor;
-            sphere_collider->obs_factor_self = info.obs_factor_self;
-        }
 
         if ( !info.noFactory ){
             if (factory ){ delete factory; }
@@ -715,7 +790,9 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
                                 info.max_local_iter,
                                 info.t_total, info.timeout_seconds,
                                 info.use_momentum);
-    
+
+    chomper->setBounds( lowerJointLimits, upperJointLimits );
+
     if ( info.use_hmc ){
         if (hmc){ delete hmc; }
         hmc = new chomp::HMC( info.hmc_lambda, info.do_not_reject );
@@ -729,14 +806,19 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     
     printChompInfo();
 
-    
-    //give chomp a collision helper to 
-    //deal with collision and gradients.
-    if (sphere_collider){
-        sphere_collider->gamma = info.gamma;
+    //create the sphere collider and pass in to the chomper.
+    if ( !info.noCollider && !sphere_collider ){
+        sphere_collider = new SphereCollisionHelper(
+                              n_dof, this, 
+                              info.gamma,
+                              info.epsilon,
+                              info.obs_factor,
+                              info.epsilon_self, 
+                              info.obs_factor_self );
+        
         chomper->gradient->ghelper = sphere_collider;
     }
-
+    
     
     if ( info.doObserve ){
         observer = new chomp::DebugChompObserver();
@@ -747,7 +829,6 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     chomper->min_global_iter = info.min_global_iter;
     chomper->min_local_iter = info.min_local_iter;
 
-
     //get the lock for the environment
     OpenRAVE::EnvironmentMutex::scoped_lock lock(environment->GetMutex() );
 
@@ -755,8 +836,6 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
         robot = environment->GetRobot( robot_name.c_str() );
     }
     
-
-    std::cout << "Starting Chomp" << std::endl;
     
     timer.start( "CHOMP run" );
     //solve chomp

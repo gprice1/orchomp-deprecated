@@ -39,8 +39,6 @@ addtsr/
 
 viewtsr
 
-removeconstraint 1
-
 computedistancefield getall
 
 iterate

@@ -62,11 +62,9 @@ Chomp::Chomp(ConstraintFactory* f,
                double tt,
                double timeout_seconds,
                bool use_momentum):
-    factory(f),
-    observer(NULL),
-    objective_type(MINIMIZE_ACCELERATION),
+    ChompOptimizerBase(f, xi_init, pinit, pgoal, MatX(0,0), MatX(0,0),
+                       MINIMIZE_ACCELERATION, tt),
     maxN(nmax),
-    xi(xi_init),
     xi_sub( NULL, 0, 0, SubMatMapStride(0,2) ),
     alpha(al),
     objRelErrTol(obstol),
@@ -83,18 +81,10 @@ Chomp::Chomp(ConstraintFactory* f,
     hmc( NULL )
 {
 
-    N = xi.rows();
     N_sub = 0;
-
-    M = xi.cols();
-
-    assert(pinit.rows() >= 1 && pinit.cols() == xi.cols());
-    assert(pgoal.rows() >= 1 && pgoal.cols() == xi.cols());
-
     minN = N;
     assert(maxN >= minN);
 
-    gradient = new ChompGradient( *this, pinit, pgoal, objective_type, tt);
 }
 
  //delete the mutex if one was used.
@@ -102,9 +92,6 @@ Chomp::~Chomp(){
     if( use_mutex ){
         pthread_mutex_destroy( &trajectory_mutex );
     }
-    
-    //delete the gradient object
-    delete gradient;
 }
 void Chomp::lockTrajectory(){
     if (use_mutex){
@@ -179,7 +166,7 @@ void Chomp::prepareChompIter() {
     
     debug << "Getting chomp Constraints" << std::endl;
     prepareChompConstraints();
-    std::cout << "Done Getting chomp Constraints" << std::endl;
+    debug << "Done Getting chomp Constraints" << std::endl;
     
     gradient->getGradient( xi );
     if ( N_sub ){ gradient->getSubsampledGradient( N_sub ); }
@@ -261,14 +248,21 @@ bool Chomp::iterateChomp( bool local ){
     //run local or global chomp
     if ( local ){
         localSmooth();
+        checkBounds( xi );
         event = CHOMP_LOCAL_ITER;
 
         //get the next gradient
         gradient->getGradient( xi );
     }else{
         chompGlobal();
+
+        //check the bounds 
+        if (N_sub == 0 ){ checkBounds( xi ); }
+        else { checkBounds( xi_sub ); }
+
         event = CHOMP_GLOBAL_ITER;
-        
+
+        //prepare for the next iteration.
         prepareChompIter();
     }
     
@@ -319,7 +313,7 @@ void Chomp::solve(bool doGlobalSmoothing, bool doLocalSmoothing) {
         use_momentum = true;
         hmc->setupHMC( objective_type, alpha );
     }
-
+    
     //Run Chomp at the current iteration, then upsample, repeat 
     //  until the current trajectory is at the max resolution
     while (1) {
@@ -337,57 +331,13 @@ void Chomp::solve(bool doGlobalSmoothing, bool doLocalSmoothing) {
 
 // upsamples the trajectory by 2x
 void Chomp::upsample() {
-
-  int N_up = 2*N+1; // e.g. size 3 goes to size 7
+  MatX xi_up;
   
-  MatX xi_up(N_up, M);
+  //calls the upsample function from chomputil
+  upsampleTrajectory( xi, gradient->q0, gradient->q1, gradient->dt,
+            gradient->objective_type, xi_up );
 
-  // q0    d0    d1    d2    q1   with n = 3
-  // q0 u0 u1 u2 u3 u4 u5 u6 q1   with n = 7
-  //
-  // u0 = 0.5*(q0 + d0)
-  // u1 = d0
-  // u2 = 0.5*(d0 + d1)
-  // u3 = d1 
-  // u4 = 0.5*(d1 + d2)
-  // u5 = d2
-  // u6 = 0.5*(d2 + q1)
-
-  for (int t=0; t<N_up; ++t) { // t is timestep in new (upsampled) regime
-
-    if (t % 2 == 0) {
-
-      assert(t == N_up-1 || (t/2) < xi.rows());
-      assert(t < xi_up.rows());
-
-      if (objective_type == MINIMIZE_VELOCITY) {
-
-        MatX qneg1 = gradient->getTick(t/2-1, xi);
-        MatX qpos1 = gradient->getTick(t/2,   xi);
-        xi_up.row(t) = 0.5 * (qneg1 + qpos1);
-
-      } else { 
-
-        MatX qneg3 = gradient->getTick(t/2-2, xi);
-        MatX qneg1 = gradient->getTick(t/2-1, xi);
-        MatX qpos1 = gradient->getTick(t/2,   xi);
-        MatX qpos3 = gradient->getTick(t/2+1, xi);
-
-        const double c3 = -1.0/160;
-        const double c1 = 81.0/160;
-
-        xi_up.row(t) = c3*qneg3 + c1*qneg1 + c1*qpos1 + c3*qpos3;
-
-      }
-
-
-    } else {
-      xi_up.row(t) = xi.row(t/2);
-    }
-
-  }
-
-  N = N_up;
+  N = xi_up.rows();
 
   lockTrajectory();
   xi = xi_up;
@@ -396,7 +346,6 @@ void Chomp::upsample() {
   h = h_sub = H = H_sub = P = HP = Y = W = delta = MatX();
 
   N_sub = 0;
-
 }
 
 // single iteration of chomp
@@ -592,32 +541,96 @@ void Chomp::constrainedUpsampleTo(int Nmax,
             updateTrajectory( hstep * delta.transpose(), i );
           }
         }
-      
       }
-
     }
-
-}
-
-int Chomp::notify(ChompEventType event,
-                    size_t iter,
-                    double curObjective,
-                    double lastObjective,
-                    double constraintViolation) const {
-
-    if (observer) {
-        return observer->notify(*this, event, iter, 
-                                curObjective, lastObjective,
-                                constraintViolation);
-    } else {
-        return 0;
-    }
-
 }
 
 
 
+template <class Derived>
+void Chomp::checkBounds( Eigen::MatrixBase<Derived> const & traj ){
 
+    const bool check_upper = (upper_bounds.size() == M);
+    const bool check_lower = (lower_bounds.size() == M);
+
+    //if there are bounds to check, check for the violations.
+
+    if ( check_upper || check_lower ){
+        
+        bool violation;
+        bounds_violations.resize( traj.rows(), traj.cols() );
+
+        const int max_checks = 10;
+        int count = 0;
+
+        do{
+            count ++;
+            double max_violation = 0.0;
+            std::pair< int, int > max_index;
+
+            for ( int j = 0; j < traj.cols(); j ++ ) {
+                const double upper = (check_upper ? upper_bounds(j) : 0 );
+                const double lower = (check_upper ? lower_bounds(j) : 0 );
+                
+                for( int i = 0; i < traj.rows(); i ++ ){
+
+                    //is there a violation of a lower bound?
+                    if ( check_lower && traj(i,j) < lower ){
+                        const double magnitude = traj(i,j) - lower;
+                        bounds_violations(i,j) = magnitude; 
+                        
+                        //save the max magnitude, and its index.
+                        if ( -magnitude > max_violation ){
+                            max_violation = -magnitude;
+                            max_index.first = i;
+                            max_index.second = j;
+                        }
+                    //is there a violation of an upper bound?
+                    }else if ( check_upper && traj(i,j) > upper ){
+                        const double magnitude = traj(i,j) - upper; 
+                        bounds_violations(i,j) = magnitude; 
+
+                        //save the max magnitude, and its index.
+                        if ( magnitude > max_violation ){
+                            max_violation = magnitude;
+                            max_index.first = i;
+                            max_index.second = j;
+                        }
+                    }else {
+                        bounds_violations(i,j) = 0;
+                    }
+                }
+            }
+            
+
+            //There are violations in the largest violation does not
+            //  have a magnitude of zero.
+            violation = ( max_violation > 0.0 );
+            
+            if( violation ){
+                //smooth out the bounds violation matrix. With
+                //  the appropriate smoothing matrix.
+                if ( bounds_violations.rows() == traj.rows() ){
+                    skylineCholSolve( gradient->L, bounds_violations );
+                }else {
+                    assert( gradient->L_sub.rows() == traj.rows() );
+                    skylineCholSolve( gradient->L_sub, bounds_violations );
+                }
+
+                //scale the bounds_violation matrix so that it sets the
+                //  largest violation to zero.
+                double current_mag = bounds_violations( max_index.first,
+                                                        max_index.second );
+                const double scale = (current_mag > 0 ?
+                                      max_violation/current_mag :
+                                     -max_violation/current_mag  );
+                const_cast<Eigen::MatrixBase<Derived>&>(traj) -= 
+                                             bounds_violations * scale;
+            }
+        //continue to check and fix limit violations as long as they exist.
+        }while( violation && count < max_checks );
+    }
+}
 
 ////////////////GOAL SET FUNCTIONS//////////////////////////////////
 

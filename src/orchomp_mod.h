@@ -131,18 +131,17 @@ public:
         epsilon( 0.1 ), epsilon_self( 0.01 ), obs_factor( 0.7 ),
         obs_factor_self( 0.3 ), jointPadding( 0.001 ),
         timeout_seconds( -1.0), hmc_lambda( 0.02 ),
-        n(25), n_max(100),
+        n(100), n_max(100),
         min_global_iter( 0 ), max_global_iter( size_t(-1) ), 
         min_local_iter( 0 ), max_local_iter( size_t(-1)), seed(0),
         doGlobal( true ),
-        doLocal( true ), doObserve( true ), noFactory (false),
+        doLocal( false ), doObserve( true ), noFactory (false),
         noCollider( false ), noSelfCollision( false ),
         noEnvironmentalCollision( false ), no_collision_check(false), 
         no_collision_exception(false), no_collision_details(false),
         use_hmc(false), use_momentum( false ), do_not_reject( true )
         {}
 };
-
 
 
 /* the module itself */
@@ -259,6 +258,9 @@ public:
     
     bool benchmark(std::ostream & sout, std::istream& sinput);
     
+    bool visualizeWholeTrajectory( std::ostream& sout,
+                                   std::istream& sinput);
+
     //print out the parameters of the current run of chomp.
     void printChompInfo();
 

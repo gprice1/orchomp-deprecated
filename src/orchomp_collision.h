@@ -42,13 +42,13 @@ public:
     bool inactive_spheres_have_been_set;
 
     //the magnitude of the gradient update
-    double gamma;
+    double gamma_sdf, gamma_self;
 
     /* obstacle parameters */
     //environmental collisions
-    double epsilon, obs_factor;
+    double epsilon;
     //self-collisions
-    double epsilon_self, obs_factor_self;
+    double epsilon_self;
     
     //all of this is from the chomp collision gradient helper.
     chomp::MatX q0, q1, q2;
@@ -56,9 +56,8 @@ public:
     chomp::MatX wkspace_vel, wkspace_accel;
     chomp::MatX P;
     chomp::MatX K;
-
+    
     double inv_dt;
-
 
     //the positions of the spheres for a given configuration.
     std::vector< OpenRAVE::Vector > sphere_positions;
@@ -94,50 +93,62 @@ public:
                                  double dt,
                                  chomp::MatX& g);
 
+    //The main call for this class.
+    //Find the workspace collision gradient for the 
+    //  current trajectory.
+    virtual double addToGradient(chomp::ConstMatMap& xi,
+                                 const chomp::MatX& pinit,
+                                 const chomp::MatX& pgoal,
+                                 double dt,
+                                 chomp::MatMap& g);
 
-    //these are mostly helper functions for addToGradient. 
+
+    template <class Derived>
+    double getCollisionCostAndGradient( int index1, int index2,
+                          const Eigen::MatrixBase<Derived> & g);
 
     //get the cost of the active sphere on active sphere collisions. 
     //  Add it to the C-space gradient.
-    double getActiveCost( size_t body_index, chomp::MatX & g_self );
-    
-    //get the cost of collisions from active to inactive spheres.
-    //  get a gradient in workspace.
-    double getInactiveCost( size_t body_index, Eigen::Vector3d & gradient_total );
+    template <class Derived>
+    double getSphereCost( int index1, int index2,
+                          const Eigen::MatrixBase<Derived> & g);
+
+    template <class Derived>
+    double getSDFCost( int index1, int index2,
+                       const Eigen::MatrixBase<Derived> & g);
     
     //Multiply the workspace gradient through the jacobian, and add it into
     //   the c-space gradient.
-    template <class Derived>
-    double addInWorkspaceGradient( double cost, const Eigen::Vector3d & grad,
-                                   const Eigen::MatrixBase<Derived> & dx_dq,
-                                   chomp::MatX & cgrad);
+    template <class Derived1, class Derived2>
+    double addInWorkspaceGradient(double cost, 
+                                  const Eigen::Vector3d & grad,
+                                  const Eigen::MatrixBase<Derived1> & dx_dq,
+                                  const Eigen::MatrixBase<Derived2> & g,
+                                  bool is_self_collision=false);
+    
+    
+    //get collisions with the environment from a list of signed distance
+    //  fields.
+    double getSDFCollision( int sphere_index, int sdf_index,
+                            Eigen::Vector3d & gradient  );
+    //return true if the sphere corresponding to body_index,
+    //  and the sdf corresponding to sdf_index are in collision
+    bool getSDFCollision(size_t body_index, size_t sdf_index);
+    bool getSDFCollisions( size_t body_index );
+
+    //calculate the cost and direction for a collision between two spheres.
+    double sphereOnSphereCollision( size_t index1, size_t index2,
+                                    Eigen::Vector3d & direction,
+                                    bool ignore=true);
+    bool sphereOnSphereCollision( size_t index1, size_t index2,
+                                  bool ignore = true);
     
     //returns true if the sphere is in collision with either a sphere
     //  or an sdf.
     bool isCollided();
-    
-    //calculate the cost and direction for a collision between two spheres.
-    OpenRAVE::dReal sphereOnSphereCollision( size_t index1, size_t index2,
-                                             Eigen::Vector3d & direction,
-                                             bool ignore=true);
-    bool sphereOnSphereCollision( size_t index1, size_t index2,
-                                  bool ignore = true);
-    
-    //return true if the sphere corresponding to body_index,
-    //  and the sdf corresponding to sdf_index are in collision
-    bool getSDFCollision(size_t body_index, size_t sdf_index);
-
-    //get collisions with the environment from a list of signed distance
-    //  fields.
-    OpenRAVE::dReal getSDFCollisions( size_t body_index,
-                                      Eigen::Vector3d & gradient,
-                                      bool viewDists=false);
-    bool getSDFCollisions( size_t body_index );
 
     //gets the jacobian of the sphere.
-    std::vector< OpenRAVE::dReal > const& 
-            getJacobian( size_t sphere_index); 
-  
+    std::vector< OpenRAVE::dReal > const& getJacobian( size_t sphere_index); 
     //for a given configuration q, set the sphere_positions vector, to the
     //  positions of the spheres for the configuration.
     virtual void setSpherePositions( const chomp::MatX & q,

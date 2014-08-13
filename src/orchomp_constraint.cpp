@@ -242,8 +242,8 @@ void ORJointLimitConstraint::evaluateConstraints(
 ORConstraintFactory::ORConstraintFactory( mod * module ) : module( module ){
 
     //add joint limit constraints to the whole trajectory.
-    chomp::Constraint * c = new ORJointLimitConstraint( module );
-    addConstraint( c, 0, 1 );
+    //chomp::Constraint * c = new ORJointLimitConstraint( module );
+    //addConstraint( c, 0, 1 );
 
 }
 ORConstraintFactory::~ORConstraintFactory(){

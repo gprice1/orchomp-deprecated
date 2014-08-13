@@ -71,24 +71,20 @@ def main():
     e = r.Environment()
     m = r.RaveCreateModule( e, 'orchomp' )
     e.SetViewer( 'qtcoin' )
-    e.Load( 'lab1.env.xml' );
-    
-    # set the manipulator to leftarm
-    #ikmodel = databases.inversekinematics.InverseKinematicsModel(
-    #            robot,iktype=IkParameterization.Type.Transform6D)
-    #if not ikmodel.load():
-    #    ikmodel.autogenerate()
 
-    Tz = r.matrixFromAxisAngle([0,0,numpy.pi/2])
-    Tz[0,3] = 0.4  
-    Tz[1,3] = 1.6
-    Tz[2,3] = -0.01
+    e.Load( "intelkitchen_robotized_herb2_nosensors_2.env.xml" );
+    robot = e.GetRobot( "Herb2" )
 
-    print Tz
-    with e:
-        for body in e.GetBodies():
-            body.SetTransform(numpy.dot(Tz,body.GetTransform()))
 
+    start = [
+       3.68000000e+00, -1.90000000e+00,  0.00000000e+00,  2.20000000e+00,
+      -2.22044605e-16,  0.00000000e+00,  0.00000000e+00,  0.00000000e+00,
+       0.00000000e+00,  0.00000000e+00,  0.00000000e+00,  2.60000000e+00,
+      -1.90000000e+00,  0.00000000e+00,  2.20000000e+00,  0.00000000e+00,
+      -1.11022302e-16,  0.00000000e+00, -1.66533454e-16, -1.66533454e-16,
+      -1.38777878e-16,  0.00000000e+00,  0.00000000e+00,  0.00000000e+00 ]
+
+    robot.SetDOFValues( start )
     readFileCommands()
 
 

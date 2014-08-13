@@ -34,27 +34,18 @@
 #ifndef _CHOMP_H_
 #define _CHOMP_H_
 
-#include "chomputil.h"
-
 #include <vector>
 #include <pthread.h>
-#include "../mzcommon/TimeUtil.h"
+
+#include "chomputil.h"
 #include "ChompGradient.h"
+#include "ChompOptimizerBase.h"
+#include "../mzcommon/TimeUtil.h"
 
 namespace chomp {
 
-class Chomp {
+class Chomp : public ChompOptimizerBase {
   public:
-
-    ConstraintFactory* factory;        
-
-    ChompObserver* observer;
-
-    ChompGradient* gradient;
-
-    ChompObjectiveType objective_type;
-    
-    int M; // degrees of freedom
 
     // the actual desired number of timesteps
     int maxN; 
@@ -62,13 +53,8 @@ class Chomp {
     // the base (minimum) number of timesteps
     int minN;
 
-    int N; // number of timesteps
     int N_sub; // number of timesteps for subsampled trajectory
     
-
-
-    // current trajectory of size N-by-M
-    MatX xi;
     SubMatMap xi_sub; // current trajectory of size N_sub-by-M
 
     MatX h; // constraint function of size k-by-1
@@ -76,6 +62,8 @@ class Chomp {
 
     MatX H; // constraint Jacobian of size k-by-M*N
     MatX H_sub; // constraint Jacobian of size k_sub-by-1
+    
+    MatX bounds_violations;
 
     double hmag; // inf. norm magnitude of constraint violation
 
@@ -101,8 +89,6 @@ class Chomp {
 
     bool full_global_at_final; //perform an iteration of global chomp
                                //on the whole trajectory at the end?
-
-
     
     //timeout_seconds : the amount of time from the start of chomp
     //                  to a forced timeout.
@@ -177,7 +163,8 @@ class Chomp {
     // calls runChomp and upsamples until N big enough
     // precondition: N <= maxN
     // postcondition: N >= maxN
-    void solve(bool doGlobalSmoothing, bool doLocalSmoothing);
+    virtual void solve(bool doGlobalSmoothing=true,
+                       bool doLocalSmoothing=true);
 
     // get the tick, respecting endpoint repetition
     MatX getTickBorderRepeat(int tick) const;
@@ -197,13 +184,12 @@ class Chomp {
     // upsamples trajectory, projecting onto constraint for each new
     // trajectory element.
     void constrainedUpsampleTo(int Nmax, double htol, double hstep=0.5);
-    
-    // call the observer if there is one
-    int notify(ChompEventType event,
-               size_t iter,
-               double curObjective, 
-               double lastObjective,
-               double constraintViolation) const;
+
+    //Checks the bounds of the current trajectory, and correct them if
+    //  necessary.
+    template <class Derived>
+    void checkBounds( Eigen::MatrixBase<Derived> const & traj );
+
 
     //Give a goal set in the form of a constraint for chomp to use on the
     //  first resolution level.
