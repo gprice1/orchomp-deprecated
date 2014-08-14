@@ -108,8 +108,6 @@ class Chomp : public ChompOptimizerBase {
     //A cholesky solver for solving the constraint matrix.
     Eigen::LDLT<MatX> cholSolver;
 
-    std::vector<Constraint*> constraints; // vector of size N
-    
     //used for goal set chomp.
     Constraint * goalset;
     bool use_goalset;
@@ -141,9 +139,6 @@ class Chomp : public ChompOptimizerBase {
     void unlockTrajectory();
     void initMutex();
     
-    //clear the constraint vector of constraints.
-    void clearConstraints();
-
     //prepares chomp to be run at a resolution level
     void prepareChomp();    
 

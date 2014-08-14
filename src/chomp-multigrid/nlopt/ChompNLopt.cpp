@@ -1,6 +1,7 @@
 
 #include "ChompNLopt.h"
 #include "ChompGradient.h"
+#include "ConstraintFactory.h"
 
 
 namespace chomp {
@@ -18,6 +19,7 @@ const std::string getNLoptReturnString( nlopt::result & result ){
 
 
 ChompNLopt::ChompNLopt(
+              ConstraintFactory * factory,
               const MatX& xi_init,
               const MatX& pinit,
               const MatX& pgoal,
@@ -27,7 +29,7 @@ ChompNLopt::ChompNLopt(
               ChompObjectiveType obj_t,
               const MatX & lower_bounds,
               const MatX & upper_bounds) :
-    ChompOptimizerBase( NULL, xi_init, pinit, pgoal,
+    ChompOptimizerBase( factory, xi_init, pinit, pgoal,
                         lower_bounds, upper_bounds, obj_t),
     N_max( N_max ),
     max_iter( max_iter ),
@@ -73,6 +75,50 @@ void ChompNLopt::solve(bool global, bool local)
 }
 
 
+void ChompNLopt::prepareNLoptConstraints(){
+
+    //if there is no factory, do nothing
+    if ( !factory ){ return; }
+
+    //clear the old constraints and then get the new constraints.
+    factory->getAll( N );
+
+    //Get the dimensionality of the constraint, and fill the
+    //  constraint_tolerances vector with the appropriate number of
+    //  elements.
+    int constraint_dims = factory->numOutput();
+
+    if ( constraint_dims != 0 ){ 
+        constraint_tolerances.resize( constraint_dims, 1e-5 );
+        
+        //the algorithm must be one that can handle equality constraints,
+        //  if it is not one that can handle equality constraints,
+        //  use the AUGLAG algorithm, with the specified local optimizer.
+        if ( algorithm != nlopt::LD_SLSQP ){
+
+            //create the new optimizer, and set the local optimizer.
+            nlopt::opt * new_optimizer = new nlopt::opt( nlopt::AUGLAG, 
+                                                         xi.size() );
+            new_optimizer->set_local_optimizer( *optimizer );
+
+            //delete the old optimizer, and set the optimizer variable
+            //  to the new optimizer.
+            delete optimizer; 
+            optimizer = new_optimizer;
+            if ( obstol != 0 ){ optimizer->set_ftol_rel( obstol ); }
+            if ( max_iter != 0 ){ optimizer->set_maxeval( max_iter ); }
+
+        }
+
+        //pass the constraint function into nlopt.
+        optimizer->add_equality_mconstraint(
+                                ConstraintFactory::NLoptConstraint,
+                                factory, constraint_tolerances);
+    }
+
+}
+
+
 double ChompNLopt::optimize(){
     
     double previous_objective_value = objective_value;
@@ -81,18 +127,23 @@ double ChompNLopt::optimize(){
     //create the optimizer
     assert( xi.size() == N * M );
     optimizer = new nlopt::opt( algorithm, xi.size() );
-    
+    if ( obstol != 0 ){ optimizer->set_ftol_rel( obstol ); }
+    if ( max_iter != 0 ){ optimizer->set_maxeval( max_iter ); }
+
+    //prepare the gradient for the run.
+    gradient->prepareRun( N );
+
+    //prepare the constraints for optimization.
+    //  This MUST be called before set_min_objective and giveBoundsToNLopt,
+    //  because prepareNLoptConstraints can change the optimization
+    //  routine.
+    if ( factory ){  prepareNLoptConstraints(); }
     giveBoundsToNLopt();
 
     //set the objective function and the termination conditions.
     optimizer->set_min_objective( ChompGradient::NLoptFunction, gradient );
-    if ( obstol != 0 ){ optimizer->set_ftol_rel( obstol ); }
-    if ( max_iter != 0 ){ optimizer->set_maxeval( max_iter ); }
     
-    //prepare the gradient for the run.
-    gradient->prepareRun( N );
-    
-
+        
     //call the optimization routine, get the result and the value
     //  of the objective function.
     std::vector<double> trajectory;

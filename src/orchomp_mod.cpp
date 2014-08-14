@@ -792,7 +792,7 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
                                 info.use_momentum);
 
     chomper->setBounds( lowerJointLimits, upperJointLimits );
-
+    
     if ( info.use_hmc ){
         if (hmc){ delete hmc; }
         hmc = new chomp::HMC( info.hmc_lambda, info.do_not_reject );
@@ -845,35 +845,7 @@ bool mod::iterate(std::ostream& sout, std::istream& sinput)
     double wallTime = timer.getWallElapsed("CHOMP run");
 
     RAVELOG_INFO( "Chomp process time %fs\n", elapsedTime );
-    
-    if ( sphere_collider ){
-        RAVELOG_INFO( "\tCollision process time:      %fs\n",
-                       sphere_collider->timer.getTotal( "collision"));
-        RAVELOG_INFO( "\tCollision FK process time:   %fs\n",
-                       sphere_collider->timer.getTotal( "FK"));
-        RAVELOG_INFO( "\tCollision Jacobian process time: %fs\n",
-                       sphere_collider->timer.getTotal( "jacobian"));
-        RAVELOG_INFO( "\tSDF Collision process time:  %fs\n",
-                       sphere_collider->timer.getTotal( "sdf collision"));
-        RAVELOG_INFO( "\tSelf Collision process time: %fs\n",
-                       sphere_collider->timer.getTotal( "self collision"));
-        RAVELOG_INFO( "\tCollision Projection process time: %fs\n",
-                       sphere_collider->timer.getTotal( "projection"));
-
-        RAVELOG_INFO( "Chomp wall time    %fs\n", wallTime );
-        RAVELOG_INFO( "\tCollision wall time:      %fs\n",
-                       sphere_collider->timer.getWallTotal( "collision"));
-        RAVELOG_INFO( "\tCollision FK wall time:   %fs\n",
-                       sphere_collider->timer.getWallTotal( "FK"));
-        RAVELOG_INFO( "\tCollision Jacobian wall time: %fs\n",
-                       sphere_collider->timer.getWallTotal( "jacobian"));
-        RAVELOG_INFO( "\tSDF Collision wall time:  %fs\n",
-                       sphere_collider->timer.getWallTotal( "sdf collision"));
-        RAVELOG_INFO( "\tSelf Collision wall time: %fs\n",
-                       sphere_collider->timer.getWallTotal( "self collision"));
-        RAVELOG_INFO( "\tCollision Projection wall time: %fs\n",
-                       sphere_collider->timer.getWallTotal( "projection"));
-    }
+    RAVELOG_INFO( "Chomp wall time    %fs\n", wallTime );
    
     RAVELOG_INFO( "Done Iterating" ); 
     return true;

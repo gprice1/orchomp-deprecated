@@ -1,6 +1,7 @@
 
 #include "ChompOptimizerBase.h"
 #include "ChompGradient.h"
+#include "Constraint.h"
 
 namespace chomp {
 
@@ -84,5 +85,7 @@ void ChompOptimizerBase::setBounds( const std::vector<double> & lower,
     setLowerBounds( lower );
     setUpperBounds( upper );
 }
+
+
 
 }//namespace

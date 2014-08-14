@@ -2,18 +2,41 @@
 #ifndef _ORCHOMP_COLLISION_H_
 #define _ORCHOMP_COLLISION_H_
 
-#include "orchomp_distancefield.h"
-#include "chomp-multigrid/chomp/Chomp.h"
-#include <openrave/openrave.h>
 #include "orchomp_kdata.h"
+#include "orchomp_distancefield.h"
+#include "chomp-multigrid/chomp/ChompGradient.h"
+
+#include <openrave/openrave.h>
 #include <boost/unordered_map.hpp>
-#include "boost/unordered_set.hpp"
+#include <boost/unordered_set.hpp>
 
 namespace orchomp{
 
 class CollisionPruner;
 class ArrayCollisionPruner;
 class mod;
+
+//this is a data structure to hold sphere collision cost and gradient
+//  info.
+class SphereCost{
+
+  public:
+    Eigen::Vector3d sdf_gradient;
+    double sdf_cost;
+
+    Eigen::Vector3d self_gradient;
+    double self_cost;
+
+    void setZero(){
+        self_cost = sdf_cost = 0;
+        self_gradient.setZero();
+        sdf_gradient.setZero();
+    }
+
+    inline double getCost( double obs_factor, double obs_factor_self ){
+        return obs_factor * sdf_cost + obs_factor_self * self_cost;
+    }
+};
 
 OpenRAVE::dReal computeCostFromDist( OpenRAVE::dReal dist,
                                      double epsilon,
@@ -42,14 +65,12 @@ public:
     bool inactive_spheres_have_been_set;
 
     //the magnitude of the gradient update
-    double gamma_sdf, gamma_self;
+    double gamma;
+    //the distance from the environment or the self at which cost starts.
+    double epsilon, epsilon_self;
+    //the percent contribution of self and environmental collisions
+    double obs_factor, obs_factor_self;
 
-    /* obstacle parameters */
-    //environmental collisions
-    double epsilon;
-    //self-collisions
-    double epsilon_self;
-    
     //all of this is from the chomp collision gradient helper.
     chomp::MatX q0, q1, q2;
     chomp::MatX cspace_vel, cspace_accel;
@@ -61,10 +82,14 @@ public:
 
     //the positions of the spheres for a given configuration.
     std::vector< OpenRAVE::Vector > sphere_positions;
+    std::vector< SphereCost > sphere_costs;
+
     map jacobians; //an unordered map of the jacobians.
 
     std::vector< Sphere > spheres; // the container holding spheres.
- 
+    
+    std::vector<double> jacobian_vector;
+
     //This is a set, used to hold joint pairs that can be ignored
     //  during collision checking.
     boost::unordered_set<int> ignorables;
@@ -102,30 +127,15 @@ public:
                                  double dt,
                                  chomp::MatMap& g);
 
-
-    template <class Derived>
-    double getCollisionCostAndGradient( int index1, int index2,
-                          const Eigen::MatrixBase<Derived> & g);
-
-    //get the cost of the active sphere on active sphere collisions. 
-    //  Add it to the C-space gradient.
-    template <class Derived>
-    double getSphereCost( int index1, int index2,
-                          const Eigen::MatrixBase<Derived> & g);
-
-    template <class Derived>
-    double getSDFCost( int index1, int index2,
-                       const Eigen::MatrixBase<Derived> & g);
+    //get the cost and gradient of a potential collision pair.
+    //  store the costs and gradient in the sphere_costs vector.
+    void getCollisionCostAndGradient( int index1, int index2 );
     
     //Multiply the workspace gradient through the jacobian, and add it into
     //   the c-space gradient.
-    template <class Derived1, class Derived2>
-    double addInWorkspaceGradient(double cost, 
-                                  const Eigen::Vector3d & grad,
-                                  const Eigen::MatrixBase<Derived1> & dx_dq,
-                                  const Eigen::MatrixBase<Derived2> & g,
-                                  bool is_self_collision=false);
-    
+    template <class Derived>
+    double projectGradient( size_t body_index, 
+                            Eigen::MatrixBase<Derived> const & g);
     
     //get collisions with the environment from a list of signed distance
     //  fields.
@@ -148,7 +158,10 @@ public:
     bool isCollided();
 
     //gets the jacobian of the sphere.
-    std::vector< OpenRAVE::dReal > const& getJacobian( size_t sphere_index); 
+    std::vector< OpenRAVE::dReal > const& getJacobian(size_t sphere_index );
+
+    void setJacobianVector( size_t sphere_index );
+
     //for a given configuration q, set the sphere_positions vector, to the
     //  positions of the spheres for the configuration.
     virtual void setSpherePositions( const chomp::MatX & q,
@@ -183,6 +196,7 @@ public:
 
 
   private:
+
     void getSpheres();
     void initPruner();
 

@@ -158,7 +158,6 @@ class ArrayInterval{
 class ArrayCollisionPruner{
     
   private:
-    Timer timer;
 
     int n_active;
     const int axis;

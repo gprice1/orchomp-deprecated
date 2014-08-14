@@ -107,14 +107,6 @@ void Chomp::initMutex(){
     use_mutex = true;
     pthread_mutex_init( &trajectory_mutex, NULL );
 }
-void Chomp::clearConstraints() {
-
-    while (!constraints.empty()) {
-        delete constraints.back();
-        constraints.pop_back();
-    }
-
-}
   
 
 void Chomp::prepareChomp() {
@@ -125,11 +117,7 @@ void Chomp::prepareChomp() {
     bool subsample = N > minN && !use_goalset &&
                      !(full_global_at_final && N >= maxN);
     
-
-    
-    //reset the constraints.
-    clearConstraints();
-    if (factory) { factory->getAll(N, constraints);}
+    if (factory) { factory->getAll( N );}
 
     //If we are doing goalset chomp, prepare for it.
     if (use_goalset ){ prepareGoalSet(); }
@@ -153,7 +141,7 @@ void Chomp::prepareChomp() {
 }
   
 
-  // precondition: prepareChomp was called for this resolution level
+// precondition: prepareChomp was called for this resolution level
 void Chomp::prepareChompIter() {
     
     if (hmc && !N_sub ) {
@@ -181,9 +169,9 @@ void Chomp::prepareChompConstraints(){
     if ( factory ){
         //If we are subsampling, get constraints corresponding
         //  to the subsampled trajectory
-        if (N_sub) { factory->evaluate(constraints, xi, h_sub, H_sub, 2); }
+        if (N_sub) { factory->evaluate(xi, h_sub, H_sub, 2); }
         //else, get constraints corresponding to the standard trajectory.
-        else { factory->evaluate(constraints, xi, h, H); }
+        else { factory->evaluate(xi, h, H); }
     }
 
     if (h.rows()) {
@@ -228,7 +216,7 @@ void Chomp::runChomp(bool global, bool local) {
     
     //handle subsampled constraint evaluation
     if (factory && N_sub) {
-        factory->evaluate(constraints, xi, h, H);
+        factory->evaluate(xi, h, H);
         if (h.rows()) {
             hmag = h.lpNorm<Eigen::Infinity>();
         }
@@ -458,7 +446,8 @@ void Chomp::localSmooth() {
 
     for (int t=0; t<N; ++t){
 
-        Constraint* c = constraints.empty() ? NULL : constraints[t];
+        Constraint* c = factory->constraints.empty() ? NULL :
+                                                  factory->constraints[t];
         
         bool is_constrained = (c && c->numOutputs() > 0);
 
@@ -475,13 +464,9 @@ void Chomp::localSmooth() {
             hmag = std::max(hmag, h_t.lpNorm<Eigen::Infinity>());
             
             debug << "ROWS: " << H_t.rows() << " " <<
-                      constraints[t]->numOutputs() << "\n";
+                      factory->constraints[t]->numOutputs() << "\n";
             debug << "ROWS: " << h_t.rows() << " " <<
-                      constraints[t]->numOutputs() << "\n";
-            assert(size_t(H_t.rows()) == constraints[t]->numOutputs());
-            assert(H_t.cols() == M);
-            assert(size_t(h_t.rows()) == constraints[t]->numOutputs());
-            assert(h_t.cols() == 1);
+                      factory->constraints[t]->numOutputs() << "\n";
     
             P_t = H_t*H_t.transpose();
             P_t_inv = P_t.inverse();
@@ -502,7 +487,6 @@ void Chomp::localSmooth() {
     
     debug << "Done with localSmooth" << std::endl;
 }
-
 
 // returns true if performance has converged
 bool Chomp::goodEnough(double oldObjective, double newObjective )
@@ -525,9 +509,13 @@ void Chomp::constrainedUpsampleTo(int Nmax,
 
       double hinit = 0, hfinal = 0;
       
-      for (int i=0; i<N; i+=2) {
+      //if there is no factory, or there are no constraints,
+      //    do not evaluate the constraints.
+      if ( !factory || factory->constraints.empty() ){ continue; }
 
-        Constraint* c = constraints.empty() ? 0 : constraints[i];
+      for (int i=0; i<N; i+=2) {
+    
+        Constraint* c = factory->constraints[i];
 
         if (!c || !c->numOutputs()) { continue; }
         
@@ -652,7 +640,7 @@ void Chomp::prepareGoalSet(){
     N = xi.rows();
 
     //add the goal constraint to the constraints vector.
-    constraints.push_back( goalset );
+    factory->constraints.push_back( goalset );
 }
 
 void Chomp::finishGoalSet(){
@@ -671,7 +659,7 @@ void Chomp::finishGoalSet(){
 
     //remove the goal constraint, so that it is not deleted along
     //  with the other constraints.
-    constraints.pop_back();
+    factory->constraints.pop_back();
     
     //call prepare chomp to reset important stuff.
     prepareChomp();

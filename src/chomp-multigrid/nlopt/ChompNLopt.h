@@ -15,11 +15,18 @@ class ChompNLopt : public ChompOptimizerBase{
     int N_max, max_iter;
     double obstol, objective_value;
     
+    //the object that does all of the optimization.
     nlopt::opt * optimizer;
+    //the type of algorithm that the optimizer uses.
     nlopt::algorithm algorithm;
+    //the type of end that the optimizer comes to.
     nlopt::result result;
     
-    ChompNLopt(const MatX& xi_init,
+    //the tolerances on the constraints
+    std::vector<double> constraint_tolerances;
+    
+    ChompNLopt(ConstraintFactory * factory,
+               const MatX& xi_init,
                const MatX& pinit,
                const MatX& pgoal,
                double obstol = 0.01,
@@ -31,6 +38,7 @@ class ChompNLopt : public ChompOptimizerBase{
 
     ~ChompNLopt();
 
+
     void solve(bool global=true, bool local=true);
 
   private:
@@ -41,6 +49,8 @@ class ChompNLopt : public ChompOptimizerBase{
     void copyNRows( const MatX & original_bounds, 
                     std::vector<double> & result);
 
+    void prepareNLoptConstraints();
+    
 };
 
 

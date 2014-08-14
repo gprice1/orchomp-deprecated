@@ -12,7 +12,7 @@ class ChompOptimizerBase{
     ChompGradient * gradient;
     ChompObserver * observer;
     ChompObjectiveType objective_type;
-
+    
     //N: the current number of waypoints in the trajectory,
     //      not including the endpoints.
     //M: the degrees of freedom.
@@ -31,7 +31,7 @@ class ChompOptimizerBase{
                       ChompObjectiveType object_type=MINIMIZE_ACCELERATION,
                         double total_time=1.0);
 
-    ~ChompOptimizerBase();
+    virtual ~ChompOptimizerBase();
 
     virtual void solve( bool global=true, bool local=true)=0;
 
@@ -53,6 +53,7 @@ class ChompOptimizerBase{
     virtual void setBounds( const std::vector<double> & lower,
                             const std::vector<double> & upper );
     
+
 };
 
 }//namespace
